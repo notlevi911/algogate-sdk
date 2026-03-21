@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 
+__version__ = "0.1.1"
 
 _REQUIRED_DEPENDENCIES = {
     "fastapi": "fastapi>=0.110.0",
@@ -43,4 +44,4 @@ _ensure_runtime_dependencies()
 from .config import AlgoGateConfig
 from .gate import AlgoGate
 
-__all__ = ["AlgoGate", "AlgoGateConfig"]
+__all__ = ["AlgoGate", "AlgoGateConfig", "__version__"]

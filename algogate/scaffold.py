@@ -7,13 +7,20 @@ from pathlib import Path
 
 import httpx
 
+from . import __version__
+
+
+SCAFFOLD_METADATA_FILE = ".algogate_scaffold.json"
+
 
 def scaffold_extension(gate) -> str:
     caller_dir = _resolve_caller_dir()
     target_dir = caller_dir / "algogate_extension"
     if target_dir.exists():
-        print(f"AlgoGate scaffold already exists at {target_dir}")
-        return "./algogate_extension/"
+        if _scaffold_is_current(target_dir):
+            print(f"AlgoGate scaffold already exists at {target_dir}")
+            return "./algogate_extension/"
+        print(f"AlgoGate scaffold at {target_dir} is outdated. Refreshing it for SDK {__version__}.")
 
     for relative_path, content in _extension_files(gate).items():
         file_path = target_dir / relative_path
@@ -21,6 +28,7 @@ def scaffold_extension(gate) -> str:
         file_path.write_text(content, encoding="utf-8")
 
     _copy_algosdk_bundle(target_dir)
+    _write_scaffold_metadata(target_dir)
     return "./algogate_extension/"
 
 
@@ -48,6 +56,25 @@ def _copy_algosdk_bundle(target_dir: Path) -> None:
     response = httpx.get("https://cdn.jsdelivr.net/npm/algosdk/dist/browser/algosdk.min.js", timeout=30.0)
     response.raise_for_status()
     target.write_bytes(response.content)
+
+
+def _scaffold_is_current(target_dir: Path) -> bool:
+    metadata_path = target_dir / SCAFFOLD_METADATA_FILE
+    if not metadata_path.exists():
+        return False
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return metadata.get("sdk_version") == __version__
+
+
+def _write_scaffold_metadata(target_dir: Path) -> None:
+    metadata_path = target_dir / SCAFFOLD_METADATA_FILE
+    metadata_path.write_text(
+        json.dumps({"sdk_version": __version__}, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _extension_files(gate) -> dict[str, str]:
@@ -690,9 +717,16 @@ def _popup_js() -> str:
         }
 
         function openPaymentModal(route, challenge) {
-          paymentModal.classList.remove("hidden");
           const algoAmount = Number(challenge.amount || 0) / 1_000_000;
-          modalCopy.textContent = `Pay ${algoAmount.toFixed(6)} ALGO to call ${getSelectedMethod()} ${route}?`;
+          const prompt = `Pay ${algoAmount.toFixed(6)} ALGO to call ${getSelectedMethod()} ${route}?`;
+
+          if (!paymentModal || !modalCopy || !modalConfirm || !modalCancel) {
+            return Promise.resolve(window.confirm(prompt));
+          }
+
+          paymentModal.classList.remove("hidden");
+          modalCopy.textContent = prompt;
+          requestAnimationFrame(() => modalConfirm.focus());
 
           return new Promise((resolve) => {
             const close = (approved) => {
