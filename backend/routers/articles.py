@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
+from backend.services.payment_service import ensure_native_algo_payment, payment_amounts
 
 
 router = APIRouter(tags=["articles"])
@@ -89,24 +91,45 @@ def list_articles():
 
 
 @router.get("/articles/1")
-def get_article_1():
+async def get_article_1(request: Request):
     try:
+        payment_response = await ensure_native_algo_payment(
+            request,
+            payment_amounts()["article_1"],
+            "Article 1",
+        )
+        if payment_response is not None:
+            return payment_response
         return ARTICLES[1]
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"error": "Internal server error", "detail": str(exc)}) from exc
 
 
 @router.get("/articles/2")
-def get_article_2():
+async def get_article_2(request: Request):
     try:
+        payment_response = await ensure_native_algo_payment(
+            request,
+            payment_amounts()["article_2"],
+            "Article 2",
+        )
+        if payment_response is not None:
+            return payment_response
         return ARTICLES[2]
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"error": "Internal server error", "detail": str(exc)}) from exc
 
 
 @router.get("/articles/3")
-def get_article_3():
+async def get_article_3(request: Request):
     try:
+        payment_response = await ensure_native_algo_payment(
+            request,
+            payment_amounts()["article_3"],
+            "Article 3",
+        )
+        if payment_response is not None:
+            return payment_response
         return ARTICLES[3]
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"error": "Internal server error", "detail": str(exc)}) from exc

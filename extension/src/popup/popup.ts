@@ -8,6 +8,7 @@ const runPaidActionButton = document.getElementById("run-paid-action") as HTMLBu
 
 const walletStateEl = document.getElementById("wallet-state") as HTMLElement;
 const walletPrimaryButton = document.getElementById("wallet-primary") as HTMLButtonElement;
+const walletPageButton = document.getElementById("wallet-page") as HTMLButtonElement;
 const revealWalletButton = document.getElementById("reveal-wallet") as HTMLButtonElement;
 const walletPasswordEl = document.getElementById("wallet-password") as HTMLInputElement;
 const walletSecretsEl = document.getElementById("wallet-secrets") as HTMLElement;
@@ -23,6 +24,13 @@ interface PopupDetection {
   label: string;
   price: number;
   tier: "free" | "paid" | "none" | "backend";
+}
+
+interface PopupWalletStatus {
+  initialized?: boolean;
+  unlocked?: boolean;
+  address?: string;
+  network?: string;
 }
 
 init().catch((error: unknown) => {
@@ -85,13 +93,15 @@ async function loadCurrentPage() {
 
 async function loadWallet() {
   const walletResponse = await chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" });
-  const wallet = walletResponse?.status as
-    | { initialized?: boolean; address?: string; network?: string }
-    | undefined;
+  const wallet = walletResponse?.status as PopupWalletStatus | undefined;
 
   if (walletResponse?.ok && wallet?.initialized) {
-    walletStateEl.textContent = `Address: ${wallet.address}\nNetwork: ${wallet.network}`;
-    walletPrimaryButton.textContent = "Open wallet page";
+    walletStateEl.textContent = [
+      `Address: ${wallet.address}`,
+      `Network: ${wallet.network}`,
+      `Session: ${wallet.unlocked ? "Unlocked" : "Locked"}`
+    ].join("\n");
+    walletPrimaryButton.textContent = wallet.unlocked ? "Lock wallet" : "Unlock wallet";
     revealWalletButton.disabled = false;
     walletBalanceEl.textContent = "Balance: Loading TestNet balance...";
     if (wallet.address) {
@@ -102,6 +112,7 @@ async function loadWallet() {
       "No embedded wallet yet. Create or import one to use Algorand TestNet.";
     walletPrimaryButton.textContent = "Set up wallet";
     revealWalletButton.disabled = true;
+    walletPageButton.disabled = false;
     walletBalanceEl.textContent = "Balance: -- ALGO · -- USDC on Algorand TestNet";
   }
 }
@@ -126,28 +137,39 @@ runPaidActionButton.addEventListener("click", async () => {
   await runActivePageAction("paid");
 });
 
-walletPrimaryButton.addEventListener("click", () => {
-  chrome.tabs.create({
-    url: chrome.runtime.getURL("src/onboarding/onboarding.html")
-  });
-});
+walletPrimaryButton.addEventListener("click", async () => {
+  const walletResponse = await chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" });
+  const wallet = walletResponse?.status as PopupWalletStatus | undefined;
 
-revealWalletButton.addEventListener("click", async () => {
-  const password = walletPasswordEl.value;
+  if (!wallet?.initialized) {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL("src/onboarding/onboarding.html")
+    });
+    return;
+  }
+
+  if (wallet.unlocked) {
+    await chrome.runtime.sendMessage({ type: "LOCK_WALLET_SESSION" });
+    walletPasswordEl.value = "";
+    walletSecretsEl.classList.add("hidden");
+    walletSecretsEl.textContent = "";
+    await loadWallet();
+    return;
+  }
+
+  const password = walletPasswordEl.value.trim();
   if (!password) {
-    walletSecretsEl.textContent = "Enter your wallet password first.";
+    walletSecretsEl.textContent = "Enter your wallet password to unlock this browser session.";
     walletSecretsEl.classList.remove("hidden");
     return;
   }
 
-  walletSecretsEl.textContent = "Revealing wallet secrets...";
+  walletSecretsEl.textContent = "Unlocking wallet session...";
   walletSecretsEl.classList.remove("hidden");
 
   const response = await chrome.runtime.sendMessage({
-    type: "REVEAL_WALLET_SECRETS",
-    payload: {
-      password
-    }
+    type: "UNLOCK_WALLET_SESSION",
+    payload: { password }
   });
 
   if (!response?.ok) {
@@ -155,7 +177,28 @@ revealWalletButton.addEventListener("click", async () => {
     return;
   }
 
-  const wallet = response.wallet as {
+  walletSecretsEl.textContent = "Wallet unlocked for this browser session.";
+  await loadWallet();
+});
+
+walletPageButton.addEventListener("click", () => {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL("src/onboarding/onboarding.html")
+  });
+});
+
+revealWalletButton.addEventListener("click", async () => {
+  const unlockedWallet = await chrome.runtime.sendMessage({ type: "GET_UNLOCKED_WALLET" });
+  if (!unlockedWallet?.wallet) {
+    walletSecretsEl.textContent = "Unlock the wallet once first. After that, you will not need the password again this session.";
+    walletSecretsEl.classList.remove("hidden");
+    return;
+  }
+
+  walletSecretsEl.textContent = "Revealing wallet secrets...";
+  walletSecretsEl.classList.remove("hidden");
+
+  const wallet = unlockedWallet.wallet as {
     address: string;
     network: string;
     mnemonic: string;

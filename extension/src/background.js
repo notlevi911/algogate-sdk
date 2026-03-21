@@ -1,6 +1,6 @@
 import { getEnvConfig } from "./lib/env.js";
 import { getSettings, setSettings } from "./lib/storage.js";
-import { getWalletStatus, revealWalletSecrets, setupEmbeddedWallet } from "./wallet/service.js";
+import { getUnlockedWallet, getWalletStatus, lockWalletSession, revealWalletSecrets, setupEmbeddedWallet, unlockWalletSession } from "./wallet/service.js";
 chrome.runtime.onInstalled.addListener(async () => {
     const settings = await getSettings();
     await setSettings(settings);
@@ -24,6 +24,8 @@ async function handleMessage(message) {
             return { ok: true };
         case "GET_WALLET_STATUS":
             return { ok: true, status: await getWalletStatus() };
+        case "GET_UNLOCKED_WALLET":
+            return { ok: true, wallet: await getUnlockedWallet() };
         case "SETUP_EMBEDDED_WALLET":
             return {
                 ok: true,
@@ -33,6 +35,16 @@ async function handleMessage(message) {
                     secretKeyBase64: String(typedMessage.payload?.secretKeyBase64 ?? ""),
                     network: String(typedMessage.payload?.network ?? "testnet")
                 }, String(typedMessage.payload?.password ?? ""))
+            };
+        case "UNLOCK_WALLET_SESSION":
+            return {
+                ok: true,
+                session: await unlockWalletSession(String(typedMessage.payload?.password ?? ""))
+            };
+        case "LOCK_WALLET_SESSION":
+            return {
+                ok: true,
+                session: await lockWalletSession()
             };
         case "REVEAL_WALLET_SECRETS":
             return {

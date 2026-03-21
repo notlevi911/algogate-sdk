@@ -1,4 +1,5 @@
 extension/.env
+backend/.env
 .venv/
 __pycache__/
 .qtwebengine/

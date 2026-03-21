@@ -1,10 +1,12 @@
 import math
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.services.cleaner import clean_html
 from backend.services.gemini_service import FREE_MODEL, PAID_MODEL, PROMPTS, call_gemini
+from backend.services.payment_service import ensure_native_algo_payment, payment_amounts
 
 
 router = APIRouter(tags=["summarize"])
@@ -49,8 +51,15 @@ def summarize_free(body: SummarizeRequest):
 
 
 @router.post("/summarize/paid")
-def summarize_paid(body: SummarizeRequest):
+async def summarize_paid(body: SummarizeRequest, request: Request):
     try:
+        payment_response = await ensure_native_algo_payment(
+            request,
+            payment_amounts()["summarize_paid"],
+            "Deep page summary",
+        )
+        if payment_response is not None:
+            return payment_response
         cleaned = clean_html(body.html)
         result = call_gemini(
             system_prompt=PROMPTS["summarize_paid"],

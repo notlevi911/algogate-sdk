@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.services.gemini_service import FREE_MODEL, PAID_MODEL, PROMPTS, call_gemini
+from backend.services.payment_service import ensure_native_algo_payment, payment_amounts
 
 
 router = APIRouter(tags=["score"])
@@ -38,8 +39,15 @@ def score_free(body: ScoreRequest):
 
 
 @router.post("/score/paid")
-def score_paid(body: ScoreRequest):
+async def score_paid(body: ScoreRequest, request: Request):
     try:
+        payment_response = await ensure_native_algo_payment(
+            request,
+            payment_amounts()["score_paid"],
+            "Deep content scoring",
+        )
+        if payment_response is not None:
+            return payment_response
         result = call_gemini(PROMPTS["score_paid"], _build_user_content(body), PAID_MODEL)
         if result.get("error"):
             raise HTTPException(status_code=503, detail={"error": "Gemini unavailable", "detail": result["message"]})

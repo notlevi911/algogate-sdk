@@ -1,9 +1,12 @@
 import { getEnvConfig } from "./lib/env.js";
 import { getSettings, setSettings } from "./lib/storage.js";
 import {
+  getUnlockedWallet,
   getWalletStatus,
+  lockWalletSession,
   revealWalletSecrets,
-  setupEmbeddedWallet
+  setupEmbeddedWallet,
+  unlockWalletSession
 } from "./wallet/service.js";
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -35,6 +38,8 @@ async function handleMessage(message: unknown) {
       return { ok: true };
     case "GET_WALLET_STATUS":
       return { ok: true, status: await getWalletStatus() };
+    case "GET_UNLOCKED_WALLET":
+      return { ok: true, wallet: await getUnlockedWallet() };
     case "SETUP_EMBEDDED_WALLET":
       return {
         ok: true,
@@ -47,6 +52,16 @@ async function handleMessage(message: unknown) {
           },
           String(typedMessage.payload?.password ?? "")
         )
+      };
+    case "UNLOCK_WALLET_SESSION":
+      return {
+        ok: true,
+        session: await unlockWalletSession(String(typedMessage.payload?.password ?? ""))
+      };
+    case "LOCK_WALLET_SESSION":
+      return {
+        ok: true,
+        session: await lockWalletSession()
       };
     case "REVEAL_WALLET_SECRETS":
       return {

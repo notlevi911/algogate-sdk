@@ -3,6 +3,7 @@ import { decryptJson, encryptJson, type EncryptedRecord } from "./crypto.js";
 import { getWalletVaultRecord, saveWalletVaultRecord } from "./vault.js";
 
 const DEFAULT_ALGORAND_NETWORK = "testnet";
+const WALLET_SESSION_KEY = "embeddedWalletSession";
 
 interface WalletPayload {
   mnemonic: string;
@@ -25,7 +26,8 @@ export async function getWalletStatus() {
     initialized: true,
     address: meta.address,
     network: meta.network || DEFAULT_ALGORAND_NETWORK,
-    createdAt: meta.createdAt
+    createdAt: meta.createdAt,
+    unlocked: Boolean(await getUnlockedWallet())
   };
 }
 
@@ -50,6 +52,12 @@ export async function setupEmbeddedWallet(walletPayload: WalletPayload, password
   };
 
   await saveWalletVaultRecord(encryptedPayload, meta);
+  await saveUnlockedWalletSession({
+    mnemonic: walletPayload.mnemonic,
+    secretKeyBase64: walletPayload.secretKeyBase64,
+    address: walletPayload.address,
+    network
+  });
   await setSettings({
     network: DEFAULT_ALGORAND_NETWORK,
     walletProvider: "embedded",
@@ -80,6 +88,37 @@ export async function revealWalletSecrets(password: string) {
     mnemonic: decrypted.mnemonic,
     secretKeyBase64: decrypted.secretKeyBase64
   };
+}
+
+export async function unlockWalletSession(password: string) {
+  const wallet = await revealWalletSecrets(password);
+  await saveUnlockedWalletSession(wallet);
+  return {
+    address: wallet.address,
+    network: wallet.network,
+    unlocked: true
+  };
+}
+
+export async function lockWalletSession() {
+  await chrome.storage.session.remove(WALLET_SESSION_KEY);
+  return { unlocked: false };
+}
+
+export async function getUnlockedWallet(): Promise<WalletPayload | null> {
+  const data = (await chrome.storage.session.get([WALLET_SESSION_KEY])) as Record<string, unknown>;
+  const wallet = data[WALLET_SESSION_KEY] as WalletPayload | undefined;
+  if (!wallet?.address || !wallet?.secretKeyBase64 || !wallet?.mnemonic) {
+    return null;
+  }
+
+  return wallet;
+}
+
+async function saveUnlockedWalletSession(wallet: WalletPayload) {
+  await chrome.storage.session.set({
+    [WALLET_SESSION_KEY]: wallet
+  });
 }
 
 function validatePassword(password: string) {

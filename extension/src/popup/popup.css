@@ -1,5 +1,13 @@
+html,
 body {
   margin: 0;
+  width: 400px;
+  height: 600px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+body {
   min-width: 320px;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #0b1220;
@@ -7,8 +15,11 @@ body {
 }
 
 .popup-shell {
+  height: 100%;
   padding: 16px;
-  width: 380px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .popup-header h1,

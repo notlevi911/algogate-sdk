@@ -10,7 +10,6 @@
     resultBox: null,
     walletState: null,
     walletBalance: null,
-    passwordInput: null,
     detection: null,
     requestId: 0,
     panelOpen: false
@@ -73,7 +72,6 @@ interface ContentState {
   resultBox: HTMLElement | null;
   walletState: HTMLElement | null;
   walletBalance: HTMLElement | null;
-  passwordInput: HTMLInputElement | null;
   detection: PageActionDetection | null;
   requestId: number;
   panelOpen: boolean;
@@ -86,6 +84,7 @@ interface ExtensionEnvConfig {
 
 interface WalletStatus {
   initialized?: boolean;
+  unlocked?: boolean;
   address?: string;
   network?: string;
 }
@@ -100,6 +99,8 @@ interface WalletSecrets {
 interface WalletBalance {
   algo?: string;
   usdc?: string;
+  microAlgos?: number;
+  microUsdc?: number;
 }
 
 interface X402PaymentRequired {
@@ -220,7 +221,6 @@ async function mountUi(state: ContentState, detection: PageActionDetection) {
   const resultBox = panel.querySelector<HTMLElement>("[data-result-box]");
   const walletState = panel.querySelector<HTMLElement>("[data-wallet-state]");
   const walletBalance = panel.querySelector<HTMLElement>("[data-wallet-balance]");
-  const passwordInput = panel.querySelector<HTMLInputElement>("[data-wallet-password]");
 
   toggle.addEventListener("click", () => {
     if (panel.classList.contains("is-open")) {
@@ -254,7 +254,6 @@ async function mountUi(state: ContentState, detection: PageActionDetection) {
   state.resultBox = resultBox;
   state.walletState = walletState;
   state.walletBalance = walletBalance;
-  state.passwordInput = passwordInput;
 
   await refreshWalletCard(state);
 }
@@ -303,10 +302,7 @@ function renderPanel(detection: PageActionDetection) {
           <div class="algo-wallet-line" data-wallet-state>Checking embedded wallet...</div>
           <div class="algo-wallet-line algo-muted" data-wallet-balance>Balance: --</div>
         </div>
-        <label class="algo-input-group">
-          <span>Wallet password</span>
-          <input data-wallet-password type="password" placeholder="Needed only for premium payment signing" />
-        </label>
+        <p class="algo-wallet-meta">Unlock it once from the popup, then premium requests can use that session without asking again.</p>
         <div class="algo-safety-actions">
           <button class="algo-safety-primary" data-open-wallet>Wallet Setup</button>
           <button class="algo-safety-secondary" data-refresh-wallet>Refresh Wallet</button>
@@ -338,7 +334,7 @@ async function refreshWalletCard(state: ContentState) {
     return;
   }
 
-  state.walletState.textContent = `Payer: ${shortAddress(status.address)} on ${status.network || "testnet"}`;
+  state.walletState.textContent = `Payer: ${shortAddress(status.address)} on ${status.network || "testnet"} · ${status.unlocked ? "Unlocked" : "Locked"}`;
   state.walletBalance.textContent = "Balance: Loading ALGO and TestNet USDC...";
 
   const balanceResponse = await chrome.runtime.sendMessage({
@@ -386,6 +382,14 @@ async function runPageAction(
       "Content-Type": "application/json"
     },
     body
+  }).catch((error: unknown) => {
+    throw new Error(
+      error instanceof Error && error.message.includes("Failed to fetch")
+        ? "Could not reach the Ether Browser backend. Start the FastAPI server on port 8000 and try again."
+        : error instanceof Error
+          ? error.message
+          : "Request failed."
+    );
   });
 
   if (response.status === 402 && tier === "paid") {
@@ -428,34 +432,77 @@ async function handlePaidChallenge(
     return;
   }
 
-  setResultMessage(state, formatPaymentChallenge(paymentRequired), "info");
+  const approvalText = formatPaymentChallenge(paymentRequired);
+  setResultMessage(state, approvalText, "info");
 
-  const password = state.passwordInput?.value.trim() || "";
-  if (!password) {
+  const sessionResponse = await chrome.runtime.sendMessage({ type: "GET_UNLOCKED_WALLET" });
+  if (!sessionResponse?.wallet) {
     setResultMessage(
       state,
-      `${formatPaymentChallenge(paymentRequired)}\n\nEnter your wallet password in the panel, then click the premium button again to sign and pay.`,
+      `${approvalText}\n\nUnlock the wallet once from the extension popup, then try the premium action again.`,
       "info"
     );
     return;
   }
 
-  const walletResponse = await chrome.runtime.sendMessage({
-    type: "REVEAL_WALLET_SECRETS",
-    payload: { password }
+  const balanceResponse = await chrome.runtime.sendMessage({
+    type: "GET_WALLET_BALANCE",
+    payload: { address: (sessionResponse.wallet as WalletSecrets).address }
   });
-
-  if (!walletResponse?.ok) {
-    setResultMessage(state, walletResponse?.error || "Could not unlock the embedded wallet.", "error");
+  const walletBalance = (balanceResponse?.balance ?? {}) as WalletBalance;
+  const requiresAlgo = String(accepted.asset || "").toUpperCase() === "ALGO";
+  const requiredAtomicAmount = Number(accepted.amount || 0);
+  const availableAtomicAmount = requiresAlgo
+    ? Number(walletBalance.microAlgos || 0)
+    : Number(walletBalance.microUsdc || 0);
+  if (!balanceResponse?.ok || availableAtomicAmount < requiredAtomicAmount) {
+    setResultMessage(
+      state,
+      requiresAlgo
+        ? `${approvalText}\n\nThis wallet does not have enough Algorand TestNet ALGO to pay yet. Fund it from the TestNet dispenser first.`
+        : `${approvalText}\n\nThis wallet does not have enough Algorand TestNet USDC to pay. Opt in to USDC ASA 10458941 and fund the wallet with testnet USDC first.`,
+      "warning"
+    );
     return;
   }
 
-  setResultMessage(state, "Signing Algorand TestNet USDC payment with the embedded wallet...", "loading");
+  if (!window.confirm(`${approvalText}\n\nApprove this premium request from your embedded Algorand TestNet wallet?`)) {
+    setResultMessage(state, "Premium request cancelled before payment.", "warning");
+    return;
+  }
+
+  setResultMessage(state, "Signing Algorand TestNet ALGO payment with the embedded wallet...", "loading");
 
   const paymentHeader = await createPaymentSignature(
     paymentRequired,
-    walletResponse.wallet as WalletSecrets
+    sessionResponse.wallet as WalletSecrets
   );
+
+  setResultMessage(state, "Payment sent. Confirming it with the backend...", "loading");
+
+  const confirmResponse = await fetchEtherApi("/api/payments/confirm", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "PAYMENT-SIGNATURE": paymentHeader
+    },
+    body: JSON.stringify({
+      resource: paymentRequired.resource?.url || location.href
+    })
+  }).catch((error: unknown) => {
+    throw new Error(
+      error instanceof Error && error.message.includes("Failed to fetch")
+        ? "Payment was sent, but the backend confirmation request could not reach port 8000."
+        : error instanceof Error
+          ? error.message
+          : "Payment confirmation failed."
+    );
+  });
+
+  if (!confirmResponse.ok) {
+    setResultMessage(state, await readBackendError(confirmResponse), "error");
+    return;
+  }
 
   const retryResponse = await fetchEtherApi("/api/summarize/paid", {
     method: "POST",
@@ -464,6 +511,14 @@ async function handlePaidChallenge(
       "PAYMENT-SIGNATURE": paymentHeader
     },
     body: requestBody
+  }).catch((error: unknown) => {
+    throw new Error(
+      error instanceof Error && error.message.includes("Failed to fetch")
+        ? "Payment was signed, but the premium retry could not reach the backend on port 8000."
+        : error instanceof Error
+          ? error.message
+          : "Premium retry failed."
+    );
   });
 
   if (!retryResponse.ok) {
@@ -487,9 +542,37 @@ async function createPaymentSignature(
 
   const algodClient = new algosdk.Algodv2("", "https://testnet-api.algonode.cloud", "");
   const suggestedParams = await algodClient.getTransactionParams().do();
+  const secretKey = decodeBase64ToUint8Array(wallet.secretKeyBase64);
+  const noteText = String(accepted.extra?.noteText || `ether:${Date.now()}`);
+
+  if (String(accepted.asset || "").toUpperCase() === "ALGO" || accepted.scheme === "algo-native") {
+    const paymentTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      sender: wallet.address,
+      receiver: accepted.payTo,
+      amount: Number(accepted.amount),
+      note: new TextEncoder().encode(noteText),
+      suggestedParams
+    });
+    const signedPaymentTxn = paymentTxn.signTxn(secretKey);
+    const sendResult = await algodClient.sendRawTransaction(signedPaymentTxn).do();
+    await waitForAlgoConfirmation(algodClient, sendResult.txId);
+
+    return encodeTextToBase64(
+      JSON.stringify({
+        x402Version: Number(paymentRequired.x402Version || 2),
+        payload: {
+          txId: sendResult.txId,
+          address: wallet.address
+        },
+        accepted,
+        resource: paymentRequired.resource || { url: location.href },
+        extensions: paymentRequired.extensions
+      })
+    );
+  }
+
   const transactions: unknown[] = [];
   let paymentIndex = 0;
-
   const feePayer = String(accepted.extra?.feePayer || "");
   if (feePayer) {
     const feePayerParams = {
@@ -511,11 +594,7 @@ async function createPaymentSignature(
   }
 
   const assetParams = feePayer
-    ? {
-        ...suggestedParams,
-        fee: 0,
-        flatFee: true
-      }
+    ? { ...suggestedParams, fee: 0, flatFee: true }
     : suggestedParams;
 
   const assetTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
@@ -523,7 +602,7 @@ async function createPaymentSignature(
     receiver: accepted.payTo,
     amount: BigInt(accepted.amount),
     assetIndex: Number(accepted.asset),
-    note: new TextEncoder().encode(`x402-payment-${Date.now()}`),
+    note: new TextEncoder().encode(noteText),
     suggestedParams: assetParams
   });
 
@@ -533,27 +612,25 @@ async function createPaymentSignature(
     algosdk.assignGroupID(transactions);
   }
 
-  const secretKey = decodeBase64ToUint8Array(wallet.secretKeyBase64);
   const signedAssetTxn = assetTxn.signTxn(secretKey);
-  const paymentGroup = transactions.map((txn, index) => {
-    if (index === paymentIndex) {
-      return encodeBytesToBase64(signedAssetTxn);
-    }
-    return encodeBytesToBase64(algosdk.encodeUnsignedTransaction(txn));
-  });
+  const paymentGroup = transactions.map((txn, index) =>
+    index === paymentIndex
+      ? encodeBytesToBase64(signedAssetTxn)
+      : encodeBytesToBase64(algosdk.encodeUnsignedTransaction(txn))
+  );
 
-  const payload = {
-    x402Version: Number(paymentRequired.x402Version || 2),
-    payload: {
-      paymentGroup,
-      paymentIndex
-    },
-    accepted,
-    resource: paymentRequired.resource || { url: location.href },
-    extensions: paymentRequired.extensions
-  };
-
-  return encodeTextToBase64(JSON.stringify(payload));
+  return encodeTextToBase64(
+    JSON.stringify({
+      x402Version: Number(paymentRequired.x402Version || 2),
+      payload: {
+        paymentGroup,
+        paymentIndex
+      },
+      accepted,
+      resource: paymentRequired.resource || { url: location.href },
+      extensions: paymentRequired.extensions
+    })
+  );
 }
 
 function renderSummaryResult(
@@ -719,7 +796,11 @@ function formatPaymentChallenge(paymentRequired: X402PaymentRequired) {
   }
 
   const amount = Number(accepted.amount || 0) / 1_000_000;
-  const assetLabel = String(accepted.asset) === "10458941" ? "USDC" : accepted.asset;
+  const assetLabel = String(accepted.asset).toUpperCase() === "ALGO"
+    ? "ALGO"
+    : String(accepted.asset) === "10458941"
+      ? "USDC"
+      : accepted.asset;
   const description = paymentRequired.resource?.description || "Premium action";
   return `Payment required for ${description}: ${amount.toFixed(2)} ${assetLabel} on Algorand TestNet.`;
 }
@@ -747,7 +828,6 @@ function teardownUi(state: ContentState) {
   state.resultBox = null;
   state.walletState = null;
   state.walletBalance = null;
-  state.passwordInput = null;
   state.detection = null;
 }
 
@@ -826,6 +906,20 @@ function encodeBytesToBase64(value: Uint8Array) {
     binary += String.fromCharCode(byte);
   });
   return btoa(binary);
+}
+
+async function waitForAlgoConfirmation(algodClient: any, txId: string) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const pending = await algodClient.pendingTransactionInformation(txId).do();
+    if (Number(pending["confirmed-round"] || 0) > 0) {
+      return pending;
+    }
+
+    const status = await algodClient.status().do();
+    await algodClient.statusAfterBlock(Number(status["last-round"] || 0) + 1).do();
+  }
+
+  throw new Error("Transaction was sent but not confirmed quickly enough.");
 }
 
 function noneDetection(): PageActionDetection {

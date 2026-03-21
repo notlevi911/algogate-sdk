@@ -31,13 +31,14 @@
         <p id="wallet-state">Loading wallet state...</p>
         <p id="wallet-balance" class="wallet-meta">Balance: -- ALGO on Algorand TestNet</p>
         <div class="actions">
-          <button id="wallet-primary">Set up wallet</button>
+          <button id="wallet-primary">Unlock wallet</button>
+          <button id="wallet-page" class="secondary">Open wallet page</button>
           <button id="reveal-wallet" class="secondary">Reveal secrets</button>
           <button id="open-options" class="secondary">Options</button>
         </div>
         <label class="inline-field">
-          Password to reveal secrets
-          <input id="wallet-password" type="password" placeholder="Enter wallet password" />
+          Wallet password
+          <input id="wallet-password" type="password" placeholder="Unlock once for this browser session" />
         </label>
         <pre id="wallet-secrets" class="secret-box hidden"></pre>
       </section>

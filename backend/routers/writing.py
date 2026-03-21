@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.services.gemini_service import FREE_MODEL, PAID_MODEL, PROMPTS, call_gemini
+from backend.services.payment_service import ensure_native_algo_payment, payment_amounts
 
 
 router = APIRouter(tags=["writing"])
@@ -48,8 +49,15 @@ def writing_free(body: WritingRequest):
 
 
 @router.post("/writing/paid")
-def writing_paid(body: WritingRequest):
+async def writing_paid(body: WritingRequest, request: Request):
     try:
+        payment_response = await ensure_native_algo_payment(
+            request,
+            payment_amounts()["writing_paid"],
+            "AI writing assist",
+        )
+        if payment_response is not None:
+            return payment_response
         instruction = _validate_instruction(body.instruction)
         system_prompt = PROMPTS["writing_paid"].replace("{instruction}", instruction)
         result = call_gemini(system_prompt, f"Text:\n{body.text[:3000]}", PAID_MODEL)
