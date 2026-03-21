@@ -1,5 +1,4 @@
 const walletStateEl = document.getElementById("wallet-state") as HTMLElement;
-const tabStateEl = document.getElementById("tab-state") as HTMLElement;
 const walletPrimaryButton = document.getElementById("wallet-primary") as HTMLButtonElement;
 const revealWalletButton = document.getElementById("reveal-wallet") as HTMLButtonElement;
 const walletPasswordEl = document.getElementById("wallet-password") as HTMLInputElement;
@@ -13,12 +12,7 @@ init().catch((error: unknown) => {
 });
 
 async function init() {
-  const [settingsResponse, walletResponse] = await Promise.all([
-    chrome.runtime.sendMessage({ type: "GET_SETTINGS" }),
-    chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" })
-  ]);
-
-  const settings = (settingsResponse?.settings || {}) as { lastDetectedPageType?: string };
+  const walletResponse = await chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" });
   const wallet = walletResponse?.status as
     | { initialized?: boolean; address?: string; network?: string }
     | undefined;
@@ -38,11 +32,6 @@ async function init() {
     revealWalletButton.disabled = true;
     walletBalanceEl.textContent = "Balance: -- ALGO on Algorand TestNet";
   }
-
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const currentUrl = tab?.url ?? "";
-  const pageType = settings.lastDetectedPageType || "generic";
-  tabStateEl.textContent = `Current page: ${currentUrl || "Unavailable"}\nDetected type: ${pageType}`;
 }
 
 walletPrimaryButton.addEventListener("click", () => {

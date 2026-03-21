@@ -1,6 +1,21 @@
+#algo-safety-action-pill {
+  position: fixed;
+  top: 22px;
+  right: 16px;
+  z-index: 2147483645;
+  border: 0;
+  border-radius: 16px;
+  padding: 6px 16px;
+  background: #4f3fd4;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(79, 63, 212, 0.34);
+  cursor: pointer;
+  font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
 #algo-safety-toggle {
   position: fixed;
-  top: 88px;
+  top: 64px;
   right: 16px;
   z-index: 2147483645;
   border: 0;

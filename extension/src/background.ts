@@ -58,6 +58,14 @@ async function handleMessage(message: unknown) {
         ok: true,
         balance: await getWalletBalance(String(typedMessage.payload?.address ?? ""))
       };
+    case "DETECT_PAGE_WITH_BACKEND":
+      return {
+        ok: true,
+        result: await detectPageWithBackend(
+          String(typedMessage.payload?.url ?? ""),
+          String(typedMessage.payload?.html ?? "")
+        )
+      };
     case "CONNECT_WALLET":
       return connectWallet(String(typedMessage.payload?.provider ?? "manual"));
     case "SET_CONNECTED_WALLET":
@@ -272,6 +280,29 @@ async function getWalletBalance(address: string) {
     microAlgos,
     algo: formatAlgo(microAlgos)
   };
+}
+
+async function detectPageWithBackend(url: string, html: string) {
+  if (!url) {
+    throw new Error("Missing URL for backend detection.");
+  }
+
+  const response = await fetch("http://localhost:5001/detect-page", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      url,
+      html: html.slice(0, 2000)
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend detection failed: ${response.status}`);
+  }
+
+  return (await response.json()) as Record<string, unknown>;
 }
 
 function formatAlgo(microAlgos: number) {

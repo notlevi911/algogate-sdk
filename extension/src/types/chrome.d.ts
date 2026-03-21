@@ -2,6 +2,7 @@ declare const chrome: any;
 
 interface Window {
   ALGO_PROTOCOLS?: Record<string, AlgoProtocolProfile>;
+  detectPageType?: (url: string, title: string) => PageActionDetection;
 }
 
 interface AlgoProtocolProfile {
@@ -12,4 +13,12 @@ interface AlgoProtocolProfile {
   summary: string;
   checks: string[];
   premiumFocus: string[];
+}
+
+interface PageActionDetection {
+  type: string;
+  action: string;
+  label: string;
+  price: number;
+  tier: "free" | "paid" | "none" | "backend";
 }

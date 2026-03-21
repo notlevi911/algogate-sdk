@@ -11,7 +11,9 @@
   ],
   "host_permissions": [
     "<all_urls>",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "http://localhost:5001/*",
+    "http://127.0.0.1:5001/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -27,6 +29,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "src/data/protocols.js",
+        "src/content/page_detector.js",
         "src/content/content.js"
       ],
       "css": [

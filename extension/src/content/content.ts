@@ -1,18 +1,129 @@
 (function initAlgoSafetyLayer() {
-  const detection = detectPage();
-  const protocol = detection.profile;
+  if (document.getElementById("algo-safety-root")) {
+    return;
+  }
+
+  const state: ContentState = {
+    root: null,
+    pill: null,
+    panel: null,
+    analysisBox: null,
+    walletState: null,
+    detection: null,
+    requestId: 0
+  };
+
+  runDetection(state).catch((error: unknown) => {
+    console.error("Algo Safety detection failed", error);
+  });
+
+  chrome.runtime.onMessage.addListener((
+    message: { type?: string },
+    _sender: unknown,
+    sendResponse: (value: PageActionDetection) => void
+  ) => {
+    if (message?.type === "GET_PAGE_DETECTION") {
+      sendResponse(state.detection ?? noneDetection());
+      return true;
+    }
+
+    return undefined;
+  });
+
+  observeLocationChanges(() => {
+    runDetection(state).catch((error: unknown) => {
+      console.error("Algo Safety detection failed", error);
+    });
+  });
+})();
+
+interface ContentState {
+  root: HTMLDivElement | null;
+  pill: HTMLButtonElement | null;
+  panel: HTMLElement | null;
+  analysisBox: HTMLElement | null;
+  walletState: HTMLElement | null;
+  detection: PageActionDetection | null;
+  requestId: number;
+}
+
+async function runDetection(state: ContentState) {
+  const requestId = ++state.requestId;
+  teardownUi(state);
+
+  const localDetection = window.detectPageType?.(location.href, document.title) ?? noneDetection();
+
+  if (localDetection.action === "none") {
+    state.detection = localDetection;
+    await chrome.runtime.sendMessage({
+      type: "SET_LAST_DETECTED_PAGE_TYPE",
+      payload: { pageType: localDetection.type }
+    });
+    return;
+  }
+
+  if (localDetection.action === "check_backend") {
+    state.detection = {
+      type: "unknown",
+      action: "check_backend",
+      label: "",
+      price: 0,
+      tier: "backend"
+    };
+    await chrome.runtime.sendMessage({
+      type: "SET_LAST_DETECTED_PAGE_TYPE",
+      payload: { pageType: "unknown" }
+    });
+
+    const response = await chrome.runtime.sendMessage({
+      type: "DETECT_PAGE_WITH_BACKEND",
+      payload: {
+        url: location.href,
+        html: document.documentElement.outerHTML.slice(0, 2000)
+      }
+    });
+
+    if (requestId !== state.requestId) {
+      return;
+    }
+
+    if (!response?.ok || !response.result?.summarizable) {
+      return;
+    }
+
+    const backendDetection = normalizeBackendDetection(response.result);
+    await mountUi(state, backendDetection);
+    return;
+  }
+
+  await mountUi(state, localDetection);
+}
+
+async function mountUi(state: ContentState, detection: PageActionDetection) {
+  state.detection = detection;
+
+  await chrome.runtime.sendMessage({
+    type: "SET_LAST_DETECTED_PAGE_TYPE",
+    payload: { pageType: detection.type }
+  });
 
   const root = document.createElement("div");
   root.id = "algo-safety-root";
 
+  const pill = document.createElement("button");
+  pill.id = "algo-safety-action-pill";
+  pill.textContent = formatPillText(detection);
+  pill.addEventListener("click", () => handlePageAction(detection));
+
   const toggle = document.createElement("button");
   toggle.id = "algo-safety-toggle";
-  toggle.textContent = detection.toggleLabel;
+  toggle.textContent = "Safety Layer";
 
   const panel = document.createElement("aside");
   panel.id = "algo-safety-panel";
-  panel.innerHTML = renderPanel(protocol, detection);
+  panel.innerHTML = renderPanel(detection);
 
+  root.appendChild(pill);
   root.appendChild(toggle);
   root.appendChild(panel);
   document.documentElement.appendChild(root);
@@ -20,18 +131,8 @@
   const closeButton = panel.querySelector<HTMLElement>("[data-close]");
   const connectButton = panel.querySelector<HTMLButtonElement>("[data-connect-wallet]");
   const analyzeButton = panel.querySelector<HTMLButtonElement>("[data-deep-analyze]");
-  const walletState = panel.querySelector<HTMLElement>("[data-wallet-state]");
   const analysisBox = panel.querySelector<HTMLElement>("[data-analysis-box]");
-  const pageTypeBox = panel.querySelector<HTMLElement>("[data-page-type]");
-
-  chrome.runtime.sendMessage({
-    type: "SET_LAST_DETECTED_PAGE_TYPE",
-    payload: { pageType: detection.pageType }
-  });
-
-  if (pageTypeBox) {
-    pageTypeBox.textContent = detection.pageTypeLabel;
-  }
+  const walletState = panel.querySelector<HTMLElement>("[data-wallet-state]");
 
   toggle.addEventListener("click", () => panel.classList.add("is-open"));
   closeButton?.addEventListener("click", () => panel.classList.remove("is-open"));
@@ -52,9 +153,9 @@
     const response = await chrome.runtime.sendMessage({
       type: "DEEP_ANALYZE_PROTOCOL",
       payload: {
-        protocol,
+        protocol: buildProtocolProfile(detection),
         pageContext: {
-          pageType: detection.pageType,
+          pageType: detection.type,
           url: location.href,
           title: document.title,
           snippet: document.body?.innerText?.slice(0, 1200) ?? ""
@@ -69,173 +170,58 @@
 
     analysisBox.textContent = response.analysis;
   });
-})();
 
-interface PageDetection {
-  pageType: string;
-  pageTypeLabel: string;
-  toggleLabel: string;
-  profile: AlgoProtocolProfile;
+  state.root = root;
+  state.pill = pill;
+  state.panel = panel;
+  state.analysisBox = analysisBox;
+  state.walletState = walletState;
 }
 
-function detectPage(): PageDetection {
-  const host = location.hostname.replace(/^www\./, "");
-  const protocol = window.ALGO_PROTOCOLS?.[host];
-
-  if (protocol) {
-    return {
-      pageType: "algorand-defi",
-      pageTypeLabel: "Algorand DeFi page detected",
-      toggleLabel: `Algo Risk: ${protocol.name}`,
-      profile: protocol
-    };
-  }
-
-  if (isYouTubePage(host, location.pathname)) {
-    return {
-      pageType: "youtube",
-      pageTypeLabel: "YouTube page detected",
-      toggleLabel: "Page Type: YouTube",
-      profile: {
-        name: "YouTube",
-        category: "Video",
-        riskScore: 18,
-        trustLevel: "General",
-        summary:
-          "This looks like a YouTube page. The extension can treat this as a media/watch context rather than a DeFi protocol page.",
-        checks: [
-          "Video/media page detected",
-          "This is not an Algorand DeFi protocol",
-          "Useful for ad-free or content summarization flows later"
-        ],
-        premiumFocus: [
-          "Video summary",
-          "Creator/channel context",
-          "Content trust notes",
-          "Future premium media analysis"
-        ]
-      }
-    };
-  }
-
-  if (isDocPage(host, location.pathname)) {
-    return {
-      pageType: "documentation",
-      pageTypeLabel: "Documentation page detected",
-      toggleLabel: "Page Type: Docs",
-      profile: {
-        name: "Documentation Page",
-        category: "Docs",
-        riskScore: 12,
-        trustLevel: "Informational",
-        summary:
-          "This looks like a docs or developer-reference page. The extension can use this context for summarization and technical explanation.",
-        checks: [
-          "Documentation-like URL or host pattern detected",
-          "Likely developer or product reference content",
-          "Good candidate for summarization or Q&A"
-        ],
-        premiumFocus: [
-          "Technical summarization",
-          "Decision-relevant takeaways",
-          "Glossary extraction",
-          "API or architecture explanation"
-        ]
-      }
-    };
-  }
-
-  if (isPdfPage()) {
-    return {
-      pageType: "pdf",
-      pageTypeLabel: "PDF page detected",
-      toggleLabel: "Page Type: PDF",
-      profile: {
-        name: "PDF Document",
-        category: "Document",
-        riskScore: 10,
-        trustLevel: "Informational",
-        summary:
-          "This looks like a PDF/document page. Good fit for premium summarization and document understanding flows.",
-        checks: [
-          "PDF or embedded document detected",
-          "Likely useful for summarization",
-          "Not a protocol interaction page"
-        ],
-        premiumFocus: [
-          "Document summary",
-          "Key risks and action items",
-          "Extracted definitions",
-          "Structured notes"
-        ]
-      }
-    };
-  }
-
-  return {
-    pageType: "generic",
-    pageTypeLabel: "General webpage detected",
-    toggleLabel: "Page Type: Web",
-    profile: {
-      name: "General Webpage",
-      category: "Web",
-      riskScore: 15,
-      trustLevel: "Unknown",
-      summary:
-        "This page is not one of the hardcoded Algorand DeFi protocols, but the extension can still classify and analyze it.",
-      checks: [
-        "Generic webpage detected",
-        "No known Algorand protocol match",
-        "Gemini analysis can still inspect visible page context"
-      ],
-      premiumFocus: [
-        "General page summary",
-        "Trust signals",
-        "Content explanation",
-        "Custom page-type reasoning"
-      ]
-    }
-  };
+function teardownUi(state: ContentState) {
+  state.root?.remove();
+  state.root = null;
+  state.pill = null;
+  state.panel = null;
+  state.analysisBox = null;
+  state.walletState = null;
+  state.detection = null;
 }
 
-function renderPanel(protocol: AlgoProtocolProfile, detection: PageDetection) {
-  const checksHtml = protocol.checks
-    .map((item: string) => `<li>${escapeHtml(item)}</li>`)
-    .join("");
-  const premiumHtml = protocol.premiumFocus
-    .map((item: string) => `<li>${escapeHtml(item)}</li>`)
-    .join("");
+function renderPanel(detection: PageActionDetection) {
+  const pricing = detection.tier === "free" ? "Free" : `$${detection.price.toFixed(2)}`;
+  const profile = buildProtocolProfile(detection);
+  const checksHtml = profile.checks.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
 
   return `
     <div class="algo-safety-header">
       <div>
-        <h2>${escapeHtml(protocol.name)}</h2>
-        <span class="algo-risk-pill">${escapeHtml(protocol.category)} · Risk ${protocol.riskScore}</span>
+        <h2>${escapeHtml(profile.name)}</h2>
+        <span class="algo-risk-pill">${escapeHtml(detection.type)} · ${escapeHtml(pricing)}</span>
       </div>
       <button class="algo-safety-close" data-close>x</button>
     </div>
     <div class="algo-safety-content">
       <section class="algo-safety-section">
         <h3>Detected page type</h3>
-        <p data-page-type>${escapeHtml(detection.pageTypeLabel)}</p>
+        <p>${escapeHtml(detection.type)}</p>
       </section>
       <section class="algo-safety-section">
-        <h3>Free checks</h3>
-        <p>${escapeHtml(protocol.summary)}</p>
+        <h3>Suggested action</h3>
+        <p>${escapeHtml(detection.label)} (${escapeHtml(pricing)})</p>
         <ul class="algo-safety-list">${checksHtml}</ul>
       </section>
       <section class="algo-safety-section">
-        <h3>Premium x402-style scan</h3>
-        <p>Unlock a deeper report with Gemini 2.5 Flash: treasury/governance risk, page explanation, whale concentration, and plain-English failure modes.</p>
-        <ul class="algo-safety-list">${premiumHtml}</ul>
+        <h3>Deep analysis</h3>
+        <p>Use Gemini 2.5 Flash for a richer explanation of this page and what to do next.</p>
         <div class="algo-safety-actions">
           <button class="algo-safety-primary" data-deep-analyze>Run deep analysis</button>
         </div>
-        <div class="algo-analysis-box" data-analysis-box>Premium analysis output will appear here.</div>
+        <div class="algo-analysis-box" data-analysis-box>Analysis output will appear here.</div>
       </section>
       <section class="algo-safety-wallet">
         <h3>Algorand Wallet</h3>
-        <p class="algo-wallet-meta">Use the extension popup to create or import your embedded Algorand TestNet wallet, then return to this page.</p>
+        <p class="algo-wallet-meta">Use the extension popup to create or import your embedded Algorand TestNet wallet, then come back here.</p>
         <div class="algo-safety-actions">
           <button class="algo-safety-secondary" data-connect-wallet>Open wallet setup</button>
         </div>
@@ -245,27 +231,92 @@ function renderPanel(protocol: AlgoProtocolProfile, detection: PageDetection) {
   `;
 }
 
-function isYouTubePage(host: string, pathname: string) {
-  return host.includes("youtube.com") || host === "youtu.be" || pathname === "/watch";
+function formatPillText(detection: PageActionDetection) {
+  const priceText = detection.tier === "free" ? "Free" : `$${detection.price.toFixed(2)}`;
+  return `${detection.label} - ${priceText}`;
 }
 
-function isDocPage(host: string, pathname: string) {
-  return (
-    host.startsWith("docs.") ||
-    host.startsWith("developer.") ||
-    host.includes("readthedocs") ||
-    pathname.includes("/docs") ||
-    pathname.includes("/documentation") ||
-    pathname.includes("/reference")
-  );
+function buildProtocolProfile(detection: PageActionDetection): AlgoProtocolProfile {
+  return {
+    name: toTitleCase(detection.type.replaceAll("_", " ")),
+    category: detection.type,
+    riskScore: detection.tier === "paid" ? 38 : 12,
+    trustLevel: detection.tier === "paid" ? "Premium" : "General",
+    summary: `${detection.label} is available for this page type.`,
+    checks: [
+      `Page classified as ${detection.type}`,
+      `Action selected: ${detection.action}`,
+      detection.tier === "free"
+        ? "This action is available without payment."
+        : `This action is priced at $${detection.price.toFixed(2)}.`
+    ],
+    premiumFocus: [
+      detection.label,
+      "Context extraction",
+      "Actionable summary",
+      "Page-specific explanation"
+    ]
+  };
 }
 
-function isPdfPage() {
-  return (
-    location.pathname.toLowerCase().endsWith(".pdf") ||
-    document.contentType === "application/pdf" ||
-    Boolean(document.querySelector('embed[type="application/pdf"], object[type="application/pdf"]'))
-  );
+function handlePageAction(detection: PageActionDetection) {
+  console.log("page_action", {
+    type: detection.type,
+    action: detection.action,
+    price: detection.price
+  });
+}
+
+function observeLocationChanges(onChange: () => void) {
+  let lastUrl = location.href;
+
+  const observer = new MutationObserver(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      onChange();
+    }
+  });
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+
+  window.addEventListener("popstate", () => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      onChange();
+    }
+  });
+}
+
+function normalizeBackendDetection(result: Record<string, unknown>): PageActionDetection {
+  const price = Number(result.price ?? 0);
+  const tierValue = String(result.tier ?? (price > 0 ? "paid" : "free"));
+  const tier: PageActionDetection["tier"] =
+    tierValue === "paid" ? "paid" : tierValue === "free" ? "free" : "free";
+
+  return {
+    type: String(result.type ?? "backend_detected"),
+    action: String(result.action ?? "summarize"),
+    label: String(result.label ?? "Summarize"),
+    price,
+    tier
+  };
+}
+
+function noneDetection(): PageActionDetection {
+  return {
+    type: "none",
+    action: "none",
+    label: "",
+    price: 0,
+    tier: "none"
+  };
+}
+
+function toTitleCase(value: string) {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function escapeHtml(value: string | number) {

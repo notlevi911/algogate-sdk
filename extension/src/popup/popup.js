@@ -1,6 +1,5 @@
 "use strict";
 const walletStateEl = document.getElementById("wallet-state");
-const tabStateEl = document.getElementById("tab-state");
 const walletPrimaryButton = document.getElementById("wallet-primary");
 const revealWalletButton = document.getElementById("reveal-wallet");
 const walletPasswordEl = document.getElementById("wallet-password");
@@ -12,11 +11,7 @@ init().catch((error) => {
         error instanceof Error ? error.message : "Failed to load popup.";
 });
 async function init() {
-    const [settingsResponse, walletResponse] = await Promise.all([
-        chrome.runtime.sendMessage({ type: "GET_SETTINGS" }),
-        chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" })
-    ]);
-    const settings = (settingsResponse?.settings || {});
+    const walletResponse = await chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" });
     const wallet = walletResponse?.status;
     if (walletResponse?.ok && wallet?.initialized) {
         walletStateEl.textContent = `Address: ${wallet.address}\nNetwork: ${wallet.network}`;
@@ -34,10 +29,6 @@ async function init() {
         revealWalletButton.disabled = true;
         walletBalanceEl.textContent = "Balance: -- ALGO on Algorand TestNet";
     }
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const currentUrl = tab?.url ?? "";
-    const pageType = settings.lastDetectedPageType || "generic";
-    tabStateEl.textContent = `Current page: ${currentUrl || "Unavailable"}\nDetected type: ${pageType}`;
 }
 walletPrimaryButton.addEventListener("click", () => {
     chrome.tabs.create({
