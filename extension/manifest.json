@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Algo DeFi Safety Layer",
-  "description": "Algorand DeFi trust and risk overlay with embedded wallet, Gemini, and x402 hooks.",
+  "name": "EtherX",
+  "description": "Premium web actions with built-in wallet payments and AI-powered unlocks.",
   "version": "0.1.0",
   "permissions": [
     "storage",
@@ -22,7 +22,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Algo DeFi Safety Layer",
+    "default_title": "EtherX",
     "default_popup": "src/popup/popup.html"
   },
   "options_page": "src/options/options.html",

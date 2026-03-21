@@ -18,11 +18,11 @@ async def lifespan(app: FastAPI):
     for route in sorted(app.routes, key=lambda item: item.path):
         methods = ",".join(sorted(getattr(route, "methods", [])))
         print(f" - {methods} {route.path}")
-    print("Native payment asset: ALGO on Algorand TestNet")
+    print("Native payment asset: ALGO")
     yield
 
 
-app = FastAPI(title="Ether Browser API", lifespan=lifespan)
+app = FastAPI(title="EtherX API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,7 +44,7 @@ app.include_router(articles.router, prefix="/api")
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "1.0", "network": "algorand-testnet"}
+    return {"status": "ok", "version": "1.0", "network": "algorand"}
 
 
 @app.exception_handler(RequestValidationError)

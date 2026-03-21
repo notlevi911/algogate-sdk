@@ -12,10 +12,11 @@
         walletBalance: null,
         detection: null,
         requestId: 0,
-        panelOpen: false
+        panelOpen: false,
+        panelWidth: 380
     };
     runDetection(state).catch((error) => {
-        console.error("Algo Safety detection failed", error);
+        console.error("EtherX detection failed", error);
     });
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (message?.type === "GET_PAGE_DETECTION") {
@@ -25,6 +26,18 @@
         if (message?.type === "OPEN_ETHER_PANEL") {
             openPanel(state);
             sendResponse({ ok: true });
+            return true;
+        }
+        if (message?.type === "GET_PAGE_CONTEXT") {
+            sendResponse({
+                ok: true,
+                context: {
+                    url: location.href,
+                    title: document.title,
+                    html: document.documentElement.outerHTML.slice(0, 250000),
+                    detection: state.detection ?? noneDetection()
+                }
+            });
             return true;
         }
         if (message?.type === "RUN_PAGE_ACTION") {
@@ -47,7 +60,7 @@
     });
     observeLocationChanges(() => {
         runDetection(state).catch((error) => {
-            console.error("Algo Safety detection failed", error);
+            console.error("EtherX detection failed", error);
         });
     });
 })();
@@ -109,10 +122,11 @@ async function mountUi(state, detection) {
     pill.addEventListener("click", () => openPanel(state));
     const toggle = document.createElement("button");
     toggle.id = "algo-safety-toggle";
-    toggle.textContent = "Ether Tools";
+    toggle.textContent = "EtherX";
     const panel = document.createElement("aside");
     panel.id = "algo-safety-panel";
     panel.innerHTML = renderPanel(detection);
+    panel.style.width = `${state.panelWidth}px`;
     root.appendChild(pill);
     root.appendChild(toggle);
     root.appendChild(panel);
@@ -121,6 +135,7 @@ async function mountUi(state, detection) {
         panel.classList.add("is-open");
     }
     const closeButton = panel.querySelector("[data-close]");
+    const resizeHandle = panel.querySelector("[data-resize-handle]");
     const walletButton = panel.querySelector("[data-open-wallet]");
     const refreshWalletButton = panel.querySelector("[data-refresh-wallet]");
     const freeButton = panel.querySelector("[data-run-free]");
@@ -137,6 +152,7 @@ async function mountUi(state, detection) {
         }
     });
     closeButton?.addEventListener("click", () => closePanel(state));
+    resizeHandle?.addEventListener("mousedown", (event) => startPanelResize(state, event));
     walletButton?.addEventListener("click", () => {
         window.open(chrome.runtime.getURL("src/onboarding/onboarding.html"), "_blank");
     });
@@ -166,15 +182,16 @@ function renderPanel(detection) {
             : "Upgrade to Premium"
         : detection.label;
     const summaryText = summaryEnabled
-        ? "Use the free tier for a quick read or unlock the stronger Gemini path over x402 on Algorand TestNet."
+        ? "Use the quick tier for a fast read or unlock the stronger Gemini path through EtherX."
         : "This page type is detected correctly, but the non-summary premium flow for it is still coming next.";
     const modelText = summaryEnabled
-        ? "Quick Summary uses gemini-2.5-flash-lite. Premium uses gemini-2.5-flash after payment."
+        ? "Quick Summary uses the fast Gemini path. Premium uses gemini-2.5-flash after payment."
         : "This page type has detection support, but its premium action flow is still coming next.";
     return `
+    <div class="algo-resize-handle" data-resize-handle></div>
     <div class="algo-safety-header">
       <div class="algo-header-copy">
-        <p class="algo-brand">Ether Browser</p>
+        <p class="algo-brand">EtherX</p>
         <h2>${escapeHtml(toTitleCase(detection.type.replaceAll("_", " ")))}</h2>
         <p class="algo-header-subtitle">Live page tools for reading, paying, and unlocking premium AI actions.</p>
         <span class="algo-risk-pill">${escapeHtml(detection.label)} · ${escapeHtml(pricing)}</span>
@@ -185,7 +202,7 @@ function renderPanel(detection) {
       <section class="algo-safety-section algo-safety-hero">
         <h3>Detected page</h3>
         <p class="algo-muted">${escapeHtml(location.hostname)}</p>
-        <p>This tab is classified as <strong>${escapeHtml(detection.type)}</strong>. Ether Browser is ready with a matching action.</p>
+        <p>This tab is classified as <strong>${escapeHtml(detection.type)}</strong>. EtherX is ready with a matching action.</p>
       </section>
 
       <section class="algo-safety-section">
@@ -200,7 +217,7 @@ function renderPanel(detection) {
 
       <section class="algo-safety-wallet">
         <h3>Wallet Payer</h3>
-        <p class="algo-wallet-meta">Your embedded Algorand TestNet wallet is used as the x402 payer for premium actions.</p>
+        <p class="algo-wallet-meta">Your embedded wallet is used as the payer for premium actions.</p>
         <div class="algo-wallet-card">
           <div class="algo-wallet-line" data-wallet-state>Checking embedded wallet...</div>
           <div class="algo-wallet-line algo-muted" data-wallet-balance>Balance: --</div>
@@ -232,8 +249,8 @@ async function refreshWalletCard(state) {
         state.walletBalance.textContent = "Balance: --";
         return;
     }
-    state.walletState.textContent = `Payer: ${shortAddress(status.address)} on ${status.network || "testnet"} · ${status.unlocked ? "Unlocked" : "Locked"}`;
-    state.walletBalance.textContent = "Balance: Loading ALGO and TestNet USDC...";
+    state.walletState.textContent = `Payer: ${shortAddress(status.address)} · ${status.unlocked ? "Unlocked" : "Locked"}`;
+    state.walletBalance.textContent = "Balance: Loading assets...";
     const balanceResponse = await chrome.runtime.sendMessage({
         type: "GET_WALLET_BALANCE",
         payload: { address: status.address }
@@ -267,7 +284,7 @@ async function runPageAction(state, detection, tier) {
             body
         }).catch((error) => {
             throw new Error(error instanceof Error && error.message.includes("Failed to fetch")
-                ? "Could not reach the Ether Browser backend. Start the FastAPI server on port 8000 and try again."
+                ? "Could not reach the EtherX API. Start the backend on port 8000 and try again."
                 : error instanceof Error
                     ? error.message
                     : "Request failed.");
@@ -325,8 +342,8 @@ async function handlePaidChallenge(state, requestBody, response) {
     const hasEnoughAlgoForPayment = availableAtomicAmount >= spendableAlgoThreshold;
     if (!balanceResponse?.ok || (requiresAlgo ? !hasEnoughAlgoForPayment : availableAtomicAmount < requiredAtomicAmount)) {
         setResultMessage(state, requiresAlgo
-            ? `${approvalText}\n\nThis wallet does not have enough spendable Algorand TestNet ALGO yet. It needs enough for the payment, the transaction fee, and Algorand's minimum balance reserve. For this request you need about ${(spendableAlgoThreshold / 1_000_000).toFixed(3)} ALGO total in the wallet.`
-            : `${approvalText}\n\nThis wallet does not have enough Algorand TestNet USDC to pay. Opt in to USDC ASA 10458941 and fund the wallet with testnet USDC first.`, "warning");
+            ? `${approvalText}\n\nThis wallet does not have enough spendable ALGO yet. It needs enough for the payment, the transaction fee, and the network reserve. For this request you need about ${(spendableAlgoThreshold / 1_000_000).toFixed(3)} ALGO total in the wallet.`
+            : `${approvalText}\n\nThis wallet does not have enough USDC to pay yet.`, "warning");
         return;
     }
     const approved = await promptForPaymentApproval(state, paymentRequired, approvalText);
@@ -334,7 +351,7 @@ async function handlePaidChallenge(state, requestBody, response) {
         setResultMessage(state, "Premium request cancelled before payment.", "warning");
         return;
     }
-    setResultMessage(state, "Signing Algorand TestNet ALGO payment with the embedded wallet...", "loading");
+    setResultMessage(state, "Signing ALGO payment with your wallet...", "loading");
     const paymentHeader = await createPaymentSignature(paymentRequired, sessionResponse.wallet);
     setResultMessage(state, "Payment sent. Confirming it with the backend...", "loading");
     await confirmPaymentWithRetry(state, paymentRequired, paymentHeader);
@@ -510,7 +527,7 @@ function promptForPaymentApproval(state, paymentRequired, approvalText) {
       <p>${escapeHtml(approvalText)}</p>
       <div class="algo-wallet-card algo-wallet-card-accent">
         <div class="algo-wallet-line"><strong>Amount:</strong> ${escapeHtml(amount.toFixed(3))} ${escapeHtml(assetLabel)}</div>
-        <div class="algo-wallet-line"><strong>Network:</strong> Algorand TestNet</div>
+        <div class="algo-wallet-line"><strong>Network:</strong> Algorand</div>
         <div class="algo-wallet-line"><strong>Receiver:</strong> ${escapeHtml(shortAddress(receiver))}</div>
       </div>
       <div class="algo-safety-actions">
@@ -628,11 +645,37 @@ function formatPaymentChallenge(paymentRequired) {
             ? "USDC"
             : accepted.asset;
     const description = paymentRequired.resource?.description || "Premium action";
-    return `Payment required for ${description}: ${amount.toFixed(2)} ${assetLabel} on Algorand TestNet.`;
+    return `Payment required for ${description}: ${amount.toFixed(2)} ${assetLabel} on Algorand.`;
 }
 function formatPillText(detection) {
     const priceText = detection.tier === "free" ? "Free" : `$${detection.price.toFixed(2)}`;
     return `${detection.label} - ${priceText}`;
+}
+function startPanelResize(state, event) {
+    if (!state.panel) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const minWidth = 320;
+    const maxWidth = Math.max(minWidth, Math.min(window.innerWidth - 24, 760));
+    const onMouseMove = (moveEvent) => {
+        const nextWidth = Math.min(maxWidth, Math.max(minWidth, window.innerWidth - moveEvent.clientX));
+        state.panelWidth = nextWidth;
+        if (state.panel) {
+            state.panel.style.width = `${nextWidth}px`;
+        }
+    };
+    const stopResize = () => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", stopResize);
+        window.removeEventListener("blur", stopResize);
+        document.documentElement.classList.remove("etherx-panel-resizing");
+    };
+    document.documentElement.classList.add("etherx-panel-resizing");
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", stopResize);
+    window.addEventListener("blur", stopResize);
 }
 function openPanel(state) {
     state.panelOpen = true;
@@ -721,7 +764,7 @@ function encodeBytesToBase64(value) {
 async function confirmPaymentWithRetry(state, paymentRequired, paymentHeader) {
     const resourceUrl = paymentRequired.resource?.url || location.href;
     for (let attempt = 1; attempt <= 20; attempt += 1) {
-        setResultMessage(state, `Payment sent. Waiting for Algorand TestNet confirmation (${attempt}/20)...`, "loading");
+        setResultMessage(state, `Payment sent. Waiting for confirmation (${attempt}/20)...`, "loading");
         const confirmResponse = await fetchEtherApi("/api/payments/confirm", {
             method: "POST",
             headers: {
@@ -744,13 +787,15 @@ async function confirmPaymentWithRetry(state, paymentRequired, paymentHeader) {
         const errorText = await readBackendError(confirmResponse);
         const normalizedError = errorText.toLowerCase();
         if (confirmResponse.status === 402 &&
-            (normalizedError.includes("not confirmed yet") || normalizedError.includes("not found on algorand testnet yet"))) {
+            (normalizedError.includes("not confirmed yet") ||
+                normalizedError.includes("not found on algorand testnet yet") ||
+                normalizedError.includes("not found on algorand yet"))) {
             await sleep(1500);
             continue;
         }
         throw new Error(errorText);
     }
-    throw new Error("Transaction was sent, but Algorand TestNet did not confirm in time. Wait a few seconds and try the premium action again.");
+    throw new Error("Transaction was sent, but confirmation took too long. Wait a few seconds and try the premium action again.");
 }
 function sleep(ms) {
     return new Promise((resolve) => {

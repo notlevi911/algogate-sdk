@@ -3,30 +3,30 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Algo DeFi Safety</title>
+    <title>EtherX</title>
     <link rel="stylesheet" href="./popup.css" />
   </head>
   <body>
     <main class="popup-shell">
       <header class="popup-header">
-        <p class="eyebrow">Ether Browser</p>
+        <p class="eyebrow">EtherX</p>
         <h1>Premium Web Actions</h1>
-        <p class="popup-subtitle">Unlock fast summaries, premium analysis, and TestNet wallet-powered actions from one place.</p>
+        <p class="popup-subtitle">Unlock fast summaries, premium analysis, and wallet-powered actions from one place.</p>
       </header>
 
       <section class="card card-page">
         <div class="card-topline">
           <span class="section-chip">Live Tab</span>
-          <span class="section-chip section-chip-soft">Browser Overlay</span>
+          <span class="section-chip section-chip-soft">Popup Actions</span>
         </div>
         <h2>Current Page</h2>
         <p id="page-url" class="wallet-meta">Loading active tab...</p>
         <p id="page-detection">Checking page type...</p>
         <p id="page-price" class="wallet-meta"></p>
         <div class="actions">
-          <button id="open-page-panel">Open page panel</button>
-          <button id="run-free-action" class="secondary">Quick Summary</button>
+          <button id="run-free-action">Quick Summary</button>
           <button id="run-paid-action" class="secondary">Premium Action</button>
+          <button id="open-page-panel" class="secondary">Open side panel</button>
         </div>
         <p id="page-status" class="wallet-meta"></p>
       </section>
@@ -34,24 +34,35 @@
       <section class="card card-wallet">
         <div class="card-topline">
           <span class="section-chip">Wallet</span>
-          <span class="section-chip section-chip-soft">Algorand TestNet</span>
+          <span class="section-chip section-chip-soft">Embedded Vault</span>
         </div>
         <h2>Wallet</h2>
         <p id="wallet-state">Loading wallet state...</p>
-        <p id="wallet-balance" class="wallet-meta">Balance: -- ALGO on Algorand TestNet</p>
+        <p id="wallet-balance" class="wallet-meta">Balance: --</p>
         <div class="actions">
           <button id="wallet-primary">Unlock wallet</button>
-          <button id="wallet-page" class="secondary">Open wallet page</button>
+          <button id="copy-wallet-address" class="secondary">Copy address</button>
+          <button id="wallet-page" class="secondary">Wallet page</button>
           <button id="reveal-wallet" class="secondary">Reveal secrets</button>
           <button id="open-options" class="secondary">Options</button>
         </div>
         <label class="inline-field">
           Wallet password
-          <input id="wallet-password" type="password" placeholder="Unlock once for this browser session" />
+          <input id="wallet-password" type="password" placeholder="Unlock once for this session" />
         </label>
         <pre id="wallet-secrets" class="secret-box hidden"></pre>
       </section>
+
+      <section class="card card-result">
+        <div class="card-topline">
+          <span class="section-chip">Action Output</span>
+          <span class="section-chip section-chip-soft">Summary + Payment</span>
+        </div>
+        <h2>Result</h2>
+        <div id="action-result" class="result-box">Pick a quick or premium action to begin.</div>
+      </section>
     </main>
+    <script src="../../node_modules/algosdk/dist/browser/algosdk.min.js"></script>
     <script src="./popup.js"></script>
   </body>
 </html>

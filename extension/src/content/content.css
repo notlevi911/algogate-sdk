@@ -32,7 +32,8 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: 380px;
+  width: min(380px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   height: 100vh;
   z-index: 2147483646;
   transform: translateX(100%);
@@ -50,6 +51,33 @@
 
 #algo-safety-panel.is-open {
   transform: translateX(0);
+}
+
+.algo-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.algo-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: 3px;
+  height: 64px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    180deg,
+    rgba(197, 22, 29, 0.14),
+    rgba(197, 22, 29, 0.45),
+    rgba(197, 22, 29, 0.14)
+  );
 }
 
 .algo-safety-header {
@@ -114,6 +142,7 @@
   overflow-y: auto;
   height: calc(100vh - 104px);
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .algo-muted {
@@ -262,6 +291,12 @@
   opacity: 0.5;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.etherx-panel-resizing,
+.etherx-panel-resizing * {
+  cursor: ew-resize !important;
+  user-select: none !important;
 }
 
 .algo-result-header,

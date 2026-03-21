@@ -3,31 +3,43 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Algo DeFi Wallet Setup</title>
+    <title>EtherX Wallet Setup</title>
     <link rel="stylesheet" href="./onboarding.css" />
   </head>
   <body>
     <main class="page">
       <header class="hero">
-        <p class="eyebrow">Embedded Algorand Wallet</p>
-        <h1>Set up your extension wallet once.</h1>
+        <p class="eyebrow">EtherX Wallet</p>
+        <h1>Set up your wallet once.</h1>
         <p class="helper-text">
-          This wallet is local to your extension and defaults to Algorand TestNet.
-          Standard Algorand wallets use a 25-word recovery phrase.
+          This wallet lives locally in EtherX and uses a standard 25-word Algorand recovery phrase.
         </p>
       </header>
 
       <section id="wallet-ready" class="card hidden">
+        <div class="card-topline">
+          <span class="section-chip">Wallet Ready</span>
+          <span class="section-chip section-chip-soft">Embedded Vault</span>
+        </div>
         <h2>Wallet ready</h2>
-        <p id="ready-summary" class="helper-text"></p>
+        <pre id="ready-summary" class="summary-box"></pre>
         <div class="actions">
+          <button id="copy-ready-address" class="secondary">Copy address</button>
           <button id="open-popup">Done</button>
         </div>
       </section>
 
       <section id="existing-wallet" class="card hidden">
+        <div class="card-topline">
+          <span class="section-chip">Already Initialized</span>
+          <span class="section-chip section-chip-soft">Local Wallet</span>
+        </div>
         <h2>Wallet already initialized</h2>
-        <p id="existing-summary" class="helper-text"></p>
+        <pre id="existing-summary" class="summary-box"></pre>
+        <div class="actions">
+          <button id="copy-existing-address" class="secondary">Copy address</button>
+          <button id="open-existing-popup">Open popup</button>
+        </div>
       </section>
 
       <section id="setup-panel" class="card">

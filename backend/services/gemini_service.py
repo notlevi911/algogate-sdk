@@ -17,8 +17,8 @@ PROMPTS = {
     "writing_paid": 'Follow the instruction exactly: {instruction}. Preserve the author meaning. Do not add facts. Return pure JSON only, no markdown: {"rewritten": "rewritten text", "changes_summary": "description of what changed and why", "tier": "paid", "cost": 0.05}',
 }
 
-FREE_MODEL = "gemini-2.5-flash-lite"
-PAID_MODEL = "gemini-2.5-flash"
+FREE_MODEL = os.getenv("GEMINI_FREE_MODEL", "gemini-2.5-flash-lite")
+PAID_MODEL = os.getenv("GEMINI_PAID_MODEL", "gemini-2.5-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 

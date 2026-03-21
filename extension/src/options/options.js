@@ -12,7 +12,7 @@ loadSettings().catch((error) => {
 saveButton.addEventListener("click", async () => {
     const payload = {
         geminiModel: modelEl.value.trim(),
-        network: networkEl.value,
+        network: "testnet",
         walletProvider: "embedded",
         x402Enabled: x402EnabledEl.checked
     };
@@ -35,6 +35,6 @@ async function loadSettings() {
     }
     const settings = response.settings;
     modelEl.value = settings.geminiModel || "gemini-2.5-flash";
-    networkEl.value = settings.network || "testnet";
+    networkEl.value = "Algorand";
     x402EnabledEl.checked = Boolean(settings.x402Enabled);
 }

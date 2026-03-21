@@ -12,6 +12,9 @@ const existingSummaryEl = document.getElementById("existing-summary") as HTMLEle
 const walletReadyPanel = document.getElementById("wallet-ready") as HTMLElement;
 const readySummaryEl = document.getElementById("ready-summary") as HTMLElement;
 const statusTextEl = document.getElementById("status-text") as HTMLElement;
+const copyReadyAddressButton = document.getElementById("copy-ready-address") as HTMLButtonElement;
+const copyExistingAddressButton = document.getElementById("copy-existing-address") as HTMLButtonElement;
+const openExistingPopupButton = document.getElementById("open-existing-popup") as HTMLButtonElement;
 
 const tabCreate = document.getElementById("tab-create") as HTMLButtonElement;
 const tabImport = document.getElementById("tab-import") as HTMLButtonElement;
@@ -40,6 +43,8 @@ const importWalletButton = document.getElementById("import-wallet") as HTMLButto
 const openPopupButton = document.getElementById("open-popup") as HTMLButtonElement;
 
 let createDraft: { mnemonic: string; address: string; secretKeyBase64: string; network: string } | null = null;
+let currentReadyAddress = "";
+let currentExistingAddress = "";
 
 init().catch((error: unknown) => {
   setStatus(error instanceof Error ? error.message : "Wallet setup failed.");
@@ -55,6 +60,9 @@ restartCreateButton.addEventListener("click", resetCreateFlow);
 backToPhraseButton.addEventListener("click", showPhraseStep);
 importWalletButton.addEventListener("click", handleImportWallet);
 openPopupButton.addEventListener("click", () => window.close());
+openExistingPopupButton?.addEventListener("click", () => window.close());
+copyReadyAddressButton?.addEventListener("click", async () => copyAddress(currentReadyAddress));
+copyExistingAddressButton?.addEventListener("click", async () => copyAddress(currentExistingAddress));
 
 async function init() {
   const response = await chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" });
@@ -66,7 +74,8 @@ async function init() {
   if (response.status?.initialized) {
     setupPanel.classList.add("hidden");
     existingWalletPanel.classList.remove("hidden");
-    existingSummaryEl.textContent = `Address: ${response.status.address}\nNetwork: ${response.status.network}`;
+    currentExistingAddress = String(response.status.address || "");
+    existingSummaryEl.textContent = `Address: ${response.status.address}\nChain: Algorand`;
     return;
   }
 
@@ -223,7 +232,8 @@ function showReadyState(address: string, network: string) {
   setupPanel.classList.add("hidden");
   existingWalletPanel.classList.add("hidden");
   walletReadyPanel.classList.remove("hidden");
-  readySummaryEl.textContent = `Address: ${address}\nNetwork: ${network}`;
+  currentReadyAddress = address;
+  readySummaryEl.textContent = `Address: ${address}\nChain: Algorand`;
   setStatus("Wallet created successfully.");
 }
 
@@ -257,6 +267,16 @@ function setStatus(message: string, isError = false) {
 
 function clearStatus() {
   statusTextEl.textContent = "";
+}
+
+async function copyAddress(address: string) {
+  if (!address) {
+    setStatus("No wallet address available to copy.", true);
+    return;
+  }
+
+  await navigator.clipboard.writeText(address);
+  setStatus("Wallet address copied.");
 }
 
 function escapeHtml(value: string | number) {

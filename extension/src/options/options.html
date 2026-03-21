@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Algo DeFi Safety Settings</title>
+    <title>EtherX Settings</title>
     <link rel="stylesheet" href="./options.css" />
   </head>
   <body>
     <main class="page">
       <header>
-        <p class="eyebrow">Settings</p>
-        <h1>Algo DeFi Safety Layer</h1>
+        <p class="eyebrow">EtherX Settings</p>
+        <h1>EtherX</h1>
       </header>
 
       <section class="card">
         <h2>Gemini</h2>
         <p class="helper-text">
-          The Gemini API key is loaded from <code>extension/.env</code>.
+          The Gemini API key is loaded from <code>extension/.env</code> and can be tuned here.
         </p>
         <label>
           Model
@@ -25,22 +25,22 @@
       </section>
 
       <section class="card">
-        <h2>Algorand wallet</h2>
+        <h2>Wallet</h2>
         <p class="helper-text">
-          The extension now uses its own embedded wallet flow. Open wallet setup to create
+          EtherX uses its own embedded wallet flow. Open wallet setup to create
           or import your recovery phrase.
         </p>
         <label>
-          Network
-          <input id="network" type="text" value="testnet" readonly />
+          Payment network
+          <input id="network" type="text" value="Algorand" readonly />
         </label>
       </section>
 
       <section class="card">
-        <h2>x402 UX</h2>
+        <h2>Premium unlocks</h2>
         <label class="checkbox">
           <input id="x402-enabled" type="checkbox" />
-          Enable x402-style premium prompts in the UI
+          Enable premium payment prompts in the UI
         </label>
       </section>
 
