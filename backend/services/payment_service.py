@@ -148,7 +148,10 @@ async def verify_payment_payload(payload: dict[str, Any], amount_microalgos: int
 
     tx_data = await fetch_transaction(tx_id)
     if not tx_data:
-        return "Payment transaction was not found on Algorand TestNet."
+        pending_tx = await fetch_pending_transaction(tx_id)
+        if pending_tx:
+            return "Payment is not confirmed yet."
+        return "Payment transaction was not found on Algorand TestNet yet."
 
     payment_tx = tx_data.get("payment-transaction") or {}
     sender = str(tx_data.get("sender") or "")
@@ -180,3 +183,12 @@ async def fetch_transaction(tx_id: str) -> dict[str, Any] | None:
             return None
         response.raise_for_status()
         return (response.json() or {}).get("transaction")
+
+
+async def fetch_pending_transaction(tx_id: str) -> dict[str, Any] | None:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.get(f"{ALGORAND_TESTNET_ALGOD}/v2/transactions/pending/{tx_id}")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json() or None

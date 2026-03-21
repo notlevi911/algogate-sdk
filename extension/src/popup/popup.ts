@@ -73,16 +73,16 @@ async function loadCurrentPage() {
     pageDetectionEl.textContent = `${popupTitleCase(detection.type.replaceAll("_", " "))}\n${detection.label}`;
     pagePriceEl.textContent =
       detection.tier === "free"
-        ? "Price: Free"
-        : `Price: $${detection.price.toFixed(2)} on Algorand TestNet`;
+        ? "Price: Free on the quick Gemini path"
+        : `Price: $${detection.price.toFixed(2)} on the premium Algorand TestNet path`;
     runFreeActionButton.textContent = "Quick Summary";
     runPaidActionButton.textContent =
-      detection.tier === "paid" ? `Pay $${detection.price.toFixed(2)}` : "Premium Action";
+      detection.tier === "paid" ? `Unlock for $${detection.price.toFixed(2)}` : "Premium Action";
     setPageButtonsDisabled(false);
     pageStatusEl.textContent =
       detection.tier === "backend"
-        ? "This page type uses the backend fallback detector."
-        : "This page was detected instantly from URL patterns.";
+        ? "This page type uses backend-assisted detection."
+        : "This page was detected instantly from local rules.";
   } catch {
     activeDetection = null;
     pageDetectionEl.textContent = "Refresh the page once so the content script can attach.";
@@ -228,7 +228,7 @@ async function runActivePageAction(tier: "free" | "paid") {
   }
 
   pageStatusEl.textContent =
-    tier === "free" ? "Running quick summary on the page..." : "Starting premium action on the page...";
+    tier === "free" ? "Starting the quick summary in the page panel..." : "Opening the premium flow in the page panel...";
 
   const response = await chrome.tabs.sendMessage(activeTabId, {
     type: "RUN_PAGE_ACTION",
@@ -238,7 +238,7 @@ async function runActivePageAction(tier: "free" | "paid") {
   pageStatusEl.textContent = response?.ok
     ? tier === "free"
       ? "Quick summary started in the page panel."
-      : "Premium action started in the page panel."
+      : "Premium payment and summary flow started in the page panel."
     : response?.error || "Could not run the page action.";
 }
 

@@ -168,25 +168,30 @@ function renderPanel(detection) {
     const summaryText = summaryEnabled
         ? "Use the free tier for a quick read or unlock the stronger Gemini path over x402 on Algorand TestNet."
         : "This page type is detected correctly, but the non-summary premium flow for it is still coming next.";
+    const modelText = summaryEnabled
+        ? "Quick Summary uses gemini-2.5-flash-lite. Premium uses gemini-2.5-flash after payment."
+        : "This page type has detection support, but its premium action flow is still coming next.";
     return `
     <div class="algo-safety-header">
-      <div>
+      <div class="algo-header-copy">
         <p class="algo-brand">Ether Browser</p>
         <h2>${escapeHtml(toTitleCase(detection.type.replaceAll("_", " ")))}</h2>
+        <p class="algo-header-subtitle">Live page tools for reading, paying, and unlocking premium AI actions.</p>
         <span class="algo-risk-pill">${escapeHtml(detection.label)} · ${escapeHtml(pricing)}</span>
       </div>
-      <button class="algo-safety-close" data-close aria-label="Close panel">x</button>
+      <button class="algo-safety-close" data-close aria-label="Close panel">×</button>
     </div>
     <div class="algo-safety-content">
-      <section class="algo-safety-section">
+      <section class="algo-safety-section algo-safety-hero">
         <h3>Detected page</h3>
         <p class="algo-muted">${escapeHtml(location.hostname)}</p>
-        <p>${escapeHtml(detection.type)} was detected for this tab.</p>
+        <p>This tab is classified as <strong>${escapeHtml(detection.type)}</strong>. Ether Browser is ready with a matching action.</p>
       </section>
 
       <section class="algo-safety-section">
         <h3>Action</h3>
         <p>${escapeHtml(summaryText)}</p>
+        <p class="algo-wallet-meta">${escapeHtml(modelText)}</p>
         <div class="algo-safety-actions">
           <button class="algo-safety-primary" data-run-free ${summaryEnabled ? "" : "disabled"}>Quick Summary</button>
           <button class="algo-safety-secondary" data-run-paid ${summaryEnabled ? "" : "disabled"}>${escapeHtml(paidButtonLabel)}</button>
@@ -241,41 +246,46 @@ async function refreshWalletCard(state) {
     state.walletBalance.textContent = `Balance: ${balance.algo || "0"} ALGO · ${balance.usdc || "0"} USDC`;
 }
 async function runPageAction(state, detection, tier) {
-    if (!state.resultBox) {
-        return;
+    try {
+        if (!state.resultBox) {
+            return;
+        }
+        if (!supportsSummaryAction(detection)) {
+            setResultMessage(state, `${detection.label} is detected, but this non-summary flow is not wired yet.`, "warning");
+            return;
+        }
+        setResultMessage(state, tier === "free" ? "Running quick summary..." : "Requesting premium summary...", "loading");
+        const body = JSON.stringify({
+            url: location.href,
+            html: document.documentElement.outerHTML.slice(0, 250000)
+        });
+        const response = await fetchEtherApi(`/api/summarize/${tier}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body
+        }).catch((error) => {
+            throw new Error(error instanceof Error && error.message.includes("Failed to fetch")
+                ? "Could not reach the Ether Browser backend. Start the FastAPI server on port 8000 and try again."
+                : error instanceof Error
+                    ? error.message
+                    : "Request failed.");
+        });
+        if (response.status === 402 && tier === "paid") {
+            await handlePaidChallenge(state, body, response);
+            return;
+        }
+        if (!response.ok) {
+            setResultMessage(state, await readBackendError(response), "error");
+            return;
+        }
+        const result = (await response.json());
+        renderSummaryResult(state, result, tier);
     }
-    if (!supportsSummaryAction(detection)) {
-        setResultMessage(state, `${detection.label} is detected, but this non-summary flow is not wired yet.`, "warning");
-        return;
+    catch (error) {
+        setResultMessage(state, error instanceof Error ? error.message : "This action failed unexpectedly.", "error");
     }
-    setResultMessage(state, tier === "free" ? "Running quick summary..." : "Requesting premium summary...", "loading");
-    const body = JSON.stringify({
-        url: location.href,
-        html: document.documentElement.outerHTML.slice(0, 250000)
-    });
-    const response = await fetchEtherApi(`/api/summarize/${tier}`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body
-    }).catch((error) => {
-        throw new Error(error instanceof Error && error.message.includes("Failed to fetch")
-            ? "Could not reach the Ether Browser backend. Start the FastAPI server on port 8000 and try again."
-            : error instanceof Error
-                ? error.message
-                : "Request failed.");
-    });
-    if (response.status === 402 && tier === "paid") {
-        await handlePaidChallenge(state, body, response);
-        return;
-    }
-    if (!response.ok) {
-        setResultMessage(state, await readBackendError(response), "error");
-        return;
-    }
-    const result = (await response.json());
-    renderSummaryResult(state, result, tier);
 }
 async function handlePaidChallenge(state, requestBody, response) {
     if (!state.resultBox) {
@@ -309,39 +319,25 @@ async function handlePaidChallenge(state, requestBody, response) {
     const availableAtomicAmount = requiresAlgo
         ? Number(walletBalance.microAlgos || 0)
         : Number(walletBalance.microUsdc || 0);
-    if (!balanceResponse?.ok || availableAtomicAmount < requiredAtomicAmount) {
+    const algoMinBalanceReserve = 100_000;
+    const algoTxnFeeReserve = 1_000;
+    const spendableAlgoThreshold = requiredAtomicAmount + algoMinBalanceReserve + algoTxnFeeReserve;
+    const hasEnoughAlgoForPayment = availableAtomicAmount >= spendableAlgoThreshold;
+    if (!balanceResponse?.ok || (requiresAlgo ? !hasEnoughAlgoForPayment : availableAtomicAmount < requiredAtomicAmount)) {
         setResultMessage(state, requiresAlgo
-            ? `${approvalText}\n\nThis wallet does not have enough Algorand TestNet ALGO to pay yet. Fund it from the TestNet dispenser first.`
+            ? `${approvalText}\n\nThis wallet does not have enough spendable Algorand TestNet ALGO yet. It needs enough for the payment, the transaction fee, and Algorand's minimum balance reserve. For this request you need about ${(spendableAlgoThreshold / 1_000_000).toFixed(3)} ALGO total in the wallet.`
             : `${approvalText}\n\nThis wallet does not have enough Algorand TestNet USDC to pay. Opt in to USDC ASA 10458941 and fund the wallet with testnet USDC first.`, "warning");
         return;
     }
-    if (!window.confirm(`${approvalText}\n\nApprove this premium request from your embedded Algorand TestNet wallet?`)) {
+    const approved = await promptForPaymentApproval(state, paymentRequired, approvalText);
+    if (!approved) {
         setResultMessage(state, "Premium request cancelled before payment.", "warning");
         return;
     }
     setResultMessage(state, "Signing Algorand TestNet ALGO payment with the embedded wallet...", "loading");
     const paymentHeader = await createPaymentSignature(paymentRequired, sessionResponse.wallet);
     setResultMessage(state, "Payment sent. Confirming it with the backend...", "loading");
-    const confirmResponse = await fetchEtherApi("/api/payments/confirm", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "PAYMENT-SIGNATURE": paymentHeader
-        },
-        body: JSON.stringify({
-            resource: paymentRequired.resource?.url || location.href
-        })
-    }).catch((error) => {
-        throw new Error(error instanceof Error && error.message.includes("Failed to fetch")
-            ? "Payment was sent, but the backend confirmation request could not reach port 8000."
-            : error instanceof Error
-                ? error.message
-                : "Payment confirmation failed.");
-    });
-    if (!confirmResponse.ok) {
-        setResultMessage(state, await readBackendError(confirmResponse), "error");
-        return;
-    }
+    await confirmPaymentWithRetry(state, paymentRequired, paymentHeader);
     const retryResponse = await fetchEtherApi("/api/summarize/paid", {
         method: "POST",
         headers: {
@@ -383,11 +379,14 @@ async function createPaymentSignature(paymentRequired, wallet) {
         });
         const signedPaymentTxn = paymentTxn.signTxn(secretKey);
         const sendResult = await algodClient.sendRawTransaction(signedPaymentTxn).do();
-        await waitForAlgoConfirmation(algodClient, sendResult.txId);
+        const txId = String(sendResult.txid || sendResult.txId || sendResult.txID || "");
+        if (!txId) {
+            throw new Error("Algorand accepted the payment submission, but no transaction id was returned.");
+        }
         return encodeTextToBase64(JSON.stringify({
             x402Version: Number(paymentRequired.x402Version || 2),
             payload: {
-                txId: sendResult.txId,
+                txId,
                 address: wallet.address
             },
             accepted,
@@ -458,6 +457,7 @@ function renderSummaryResult(state, result, tier) {
     const title = String(result.title ?? document.title ?? "Summary");
     const tldr = String(result.tldr ?? "");
     const sourceQuality = String(result.source_quality ?? "");
+    const modelUsed = String(result.model_used ?? "");
     state.resultBox.innerHTML = `
     <div class="algo-result-header">
       <strong>${escapeHtml(title)}</strong>
@@ -471,6 +471,7 @@ function renderSummaryResult(state, result, tier) {
       <span>${escapeHtml(`${wordCount} words`)}</span>
       ${readingTime ? `<span>${escapeHtml(`${readingTime} min read`)}</span>` : ""}
       ${sourceQuality ? `<span>${escapeHtml(`Source quality: ${sourceQuality}`)}</span>` : ""}
+      ${modelUsed ? `<span>${escapeHtml(`Model: ${modelUsed}`)}</span>` : ""}
     </div>
   `;
 }
@@ -493,6 +494,49 @@ function setResultMessage(state, message, tone) {
     }
     state.resultBox.className = `algo-analysis-box tone-${tone}`;
     state.resultBox.textContent = message;
+}
+function promptForPaymentApproval(state, paymentRequired, approvalText) {
+    if (!state.resultBox) {
+        return Promise.resolve(false);
+    }
+    const accepted = paymentRequired.accepts?.[0];
+    const amount = Number(accepted?.amount || 0) / 1_000_000;
+    const assetLabel = String(accepted?.asset || "ALGO").toUpperCase() === "ALGO" ? "ALGO" : String(accepted?.asset || "");
+    const receiver = String(accepted?.payTo || "");
+    state.resultBox.className = "algo-analysis-box tone-info";
+    state.resultBox.innerHTML = `
+    <div class="algo-result-section">
+      <p class="algo-result-label">Premium approval</p>
+      <p>${escapeHtml(approvalText)}</p>
+      <div class="algo-wallet-card algo-wallet-card-accent">
+        <div class="algo-wallet-line"><strong>Amount:</strong> ${escapeHtml(amount.toFixed(3))} ${escapeHtml(assetLabel)}</div>
+        <div class="algo-wallet-line"><strong>Network:</strong> Algorand TestNet</div>
+        <div class="algo-wallet-line"><strong>Receiver:</strong> ${escapeHtml(shortAddress(receiver))}</div>
+      </div>
+      <div class="algo-safety-actions">
+        <button class="algo-safety-primary" data-payment-approve>Approve Payment</button>
+        <button class="algo-safety-secondary" data-payment-cancel>Cancel</button>
+      </div>
+    </div>
+  `;
+    return new Promise((resolve) => {
+        const approveButton = state.resultBox?.querySelector("[data-payment-approve]");
+        const cancelButton = state.resultBox?.querySelector("[data-payment-cancel]");
+        const approveHandler = () => {
+            cleanup();
+            resolve(true);
+        };
+        const cancelHandler = () => {
+            cleanup();
+            resolve(false);
+        };
+        const cleanup = () => {
+            approveButton?.removeEventListener("click", approveHandler);
+            cancelButton?.removeEventListener("click", cancelHandler);
+        };
+        approveButton?.addEventListener("click", approveHandler);
+        cancelButton?.addEventListener("click", cancelHandler);
+    });
 }
 async function fetchEtherApi(path, init) {
     const env = await getExtensionEnvConfig();
@@ -674,16 +718,44 @@ function encodeBytesToBase64(value) {
     });
     return btoa(binary);
 }
-async function waitForAlgoConfirmation(algodClient, txId) {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-        const pending = await algodClient.pendingTransactionInformation(txId).do();
-        if (Number(pending["confirmed-round"] || 0) > 0) {
-            return pending;
+async function confirmPaymentWithRetry(state, paymentRequired, paymentHeader) {
+    const resourceUrl = paymentRequired.resource?.url || location.href;
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+        setResultMessage(state, `Payment sent. Waiting for Algorand TestNet confirmation (${attempt}/20)...`, "loading");
+        const confirmResponse = await fetchEtherApi("/api/payments/confirm", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "PAYMENT-SIGNATURE": paymentHeader
+            },
+            body: JSON.stringify({
+                resource: resourceUrl
+            })
+        }).catch((error) => {
+            throw new Error(error instanceof Error && error.message.includes("Failed to fetch")
+                ? "Payment was sent, but the backend confirmation request could not reach port 8000."
+                : error instanceof Error
+                    ? error.message
+                    : "Payment confirmation failed.");
+        });
+        if (confirmResponse.ok) {
+            return;
         }
-        const status = await algodClient.status().do();
-        await algodClient.statusAfterBlock(Number(status["last-round"] || 0) + 1).do();
+        const errorText = await readBackendError(confirmResponse);
+        const normalizedError = errorText.toLowerCase();
+        if (confirmResponse.status === 402 &&
+            (normalizedError.includes("not confirmed yet") || normalizedError.includes("not found on algorand testnet yet"))) {
+            await sleep(1500);
+            continue;
+        }
+        throw new Error(errorText);
     }
-    throw new Error("Transaction was sent but not confirmed quickly enough.");
+    throw new Error("Transaction was sent, but Algorand TestNet did not confirm in time. Wait a few seconds and try the premium action again.");
+}
+function sleep(ms) {
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+    });
 }
 function noneDetection() {
     return {

@@ -1,16 +1,16 @@
 #algo-safety-action-pill {
   position: fixed;
-  top: 22px;
+  top: 20px;
   right: 16px;
   z-index: 2147483645;
   border: 0;
-  border-radius: 16px;
-  padding: 6px 16px;
-  background: #4f3fd4;
+  border-radius: 999px;
+  padding: 9px 16px;
+  background: linear-gradient(180deg, #d81f28, #b11017);
   color: #fff;
-  box-shadow: 0 12px 28px rgba(79, 63, 212, 0.34);
+  box-shadow: 0 14px 32px rgba(177, 16, 23, 0.28);
   cursor: pointer;
-  font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 700 13px/1.2 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 #algo-safety-toggle {
@@ -18,30 +18,32 @@
   top: 66px;
   right: 16px;
   z-index: 2147483645;
-  border: 0;
+  border: 1px solid rgba(197, 22, 29, 0.12);
   border-radius: 999px;
   padding: 10px 14px;
-  background: #0f172a;
-  color: #f8fafc;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.32);
+  background: rgba(255, 255, 255, 0.96);
+  color: #951219;
+  box-shadow: 0 14px 28px rgba(126, 21, 25, 0.14);
   cursor: pointer;
-  font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 700 13px/1.2 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 #algo-safety-panel {
   position: fixed;
   top: 0;
   right: 0;
-  width: 360px;
+  width: 380px;
   height: 100vh;
   z-index: 2147483646;
   transform: translateX(100%);
   transition: transform 180ms ease;
-  background: #0b1220;
-  color: #e5eefc;
-  box-shadow: -10px 0 28px rgba(15, 23, 42, 0.35);
-  border-left: 1px solid rgba(148, 163, 184, 0.16);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top right, rgba(216, 31, 40, 0.08), transparent 24%),
+    linear-gradient(180deg, #fff8f8 0%, #ffffff 52%, #fff3f3 100%);
+  color: #2a1010;
+  box-shadow: -16px 0 38px rgba(110, 18, 22, 0.18);
+  border-left: 1px solid rgba(197, 22, 29, 0.1);
+  font: 14px/1.5 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
   overflow: hidden;
   overscroll-behavior: contain;
 }
@@ -53,17 +55,22 @@
 .algo-safety-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 18px 18px 14px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  gap: 16px;
+  align-items: flex-start;
+  padding: 22px 20px 16px;
+  border-bottom: 1px solid rgba(197, 22, 29, 0.08);
+}
+
+.algo-header-copy {
+  min-width: 0;
 }
 
 .algo-brand {
   margin: 0 0 8px;
-  color: #a5b4fc;
+  color: #c5161d;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -73,49 +80,69 @@
   margin: 0;
 }
 
+.algo-safety-header h2 {
+  font-size: 28px;
+  line-height: 1.05;
+}
+
+.algo-header-subtitle {
+  margin: 10px 0 0;
+  color: #7a3538;
+  font-size: 13px;
+}
+
 .algo-safety-close,
 .algo-safety-primary,
 .algo-safety-secondary {
   border: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   cursor: pointer;
 }
 
 .algo-safety-close {
-  width: 32px;
-  height: 32px;
-  background: #1e293b;
-  color: #fff;
+  width: 36px;
+  height: 36px;
+  background: #fff;
+  color: #a1141a;
+  border: 1px solid rgba(197, 22, 29, 0.14);
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .algo-safety-content {
   padding: 18px;
   overflow-y: auto;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 104px);
   overscroll-behavior: contain;
 }
 
 .algo-muted {
-  color: #94a3b8;
+  color: #8f4a4d;
 }
 
 .algo-risk-pill {
   display: inline-block;
-  margin-top: 8px;
-  padding: 6px 10px;
+  margin-top: 12px;
+  padding: 7px 12px;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.16);
-  color: #93c5fd;
-  font-weight: 600;
+  background: #ffe0e1;
+  color: #9f1218;
+  font-weight: 700;
 }
 
 .algo-safety-section,
 .algo-safety-wallet {
   margin-bottom: 18px;
-  padding: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.72);
+  padding: 18px;
+  border: 1px solid rgba(197, 22, 29, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 32px rgba(119, 24, 28, 0.06);
+}
+
+.algo-safety-hero {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 243, 243, 0.98));
 }
 
 .algo-safety-list {
@@ -126,64 +153,76 @@
 .algo-safety-actions {
   display: flex;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.algo-safety-primary,
+.algo-safety-secondary {
+  flex: 1;
+  min-width: 132px;
+  padding: 12px 14px;
+  font-weight: 700;
 }
 
 .algo-safety-primary {
-  flex: 1;
-  padding: 10px 12px;
-  background: #2563eb;
+  background: linear-gradient(180deg, #d81f28, #b11017);
   color: #fff;
-  font-weight: 600;
+  box-shadow: 0 12px 24px rgba(177, 16, 23, 0.18);
 }
 
 .algo-safety-secondary {
-  flex: 1;
-  padding: 10px 12px;
-  background: #1e293b;
-  color: #fff;
+  background: #fff;
+  color: #9f1218;
+  border: 1px solid rgba(197, 22, 29, 0.14);
 }
 
 .algo-wallet-meta {
-  color: #94a3b8;
-  margin-top: 6px;
+  color: #7a3538;
+  margin-top: 8px;
 }
 
 .algo-analysis-box {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 10px;
-  background: #111827;
-  color: #dbeafe;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #fff5f5;
+  color: #4e1618;
   white-space: pre-wrap;
+  border: 1px solid rgba(197, 22, 29, 0.1);
 }
 
 .algo-analysis-box.tone-error {
-  background: rgba(127, 29, 29, 0.35);
-  color: #fecaca;
+  background: #fff0f0;
+  color: #9f1218;
 }
 
 .algo-analysis-box.tone-warning {
-  background: rgba(120, 53, 15, 0.35);
-  color: #fed7aa;
+  background: #fff5eb;
+  color: #9a3412;
+  border-color: rgba(234, 88, 12, 0.16);
 }
 
 .algo-analysis-box.tone-info {
-  background: rgba(30, 41, 59, 0.88);
-  color: #cbd5f5;
+  background: #fff7f7;
+  color: #6e2225;
 }
 
 .algo-analysis-box.tone-loading {
-  background: rgba(30, 64, 175, 0.28);
-  color: #dbeafe;
+  background: linear-gradient(180deg, #fff3f3, #ffe5e6);
+  color: #8a1a1f;
 }
 
 .algo-wallet-card {
   margin-top: 12px;
   padding: 12px;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  background: #fff7f7;
+  border: 1px solid rgba(197, 22, 29, 0.1);
+}
+
+.algo-wallet-card-accent {
+  background: linear-gradient(180deg, #fff7f7, #fff0f0);
 }
 
 .algo-wallet-line + .algo-wallet-line {
@@ -198,30 +237,31 @@
 .algo-input-group span {
   display: block;
   margin-bottom: 8px;
-  color: #cbd5e1;
+  color: #7f3437;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 .algo-input-group input {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 10px;
+  border: 1px solid rgba(197, 22, 29, 0.15);
+  border-radius: 14px;
   padding: 11px 12px;
-  background: #111827;
-  color: #f8fafc;
+  background: #fff;
+  color: #2d1011;
 }
 
 .algo-input-group input::placeholder {
-  color: #64748b;
+  color: #ae7b7d;
 }
 
 .algo-safety-primary:disabled,
 .algo-safety-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .algo-result-header,
@@ -235,7 +275,7 @@
 
 .algo-result-meta,
 .algo-result-footer {
-  color: #93c5fd;
+  color: #9f1218;
   font-size: 12px;
 }
 
@@ -245,9 +285,9 @@
 
 .algo-result-label {
   margin: 0;
-  color: #bfdbfe;
+  color: #9f1218;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }

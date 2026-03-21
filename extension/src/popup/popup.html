@@ -9,11 +9,16 @@
   <body>
     <main class="popup-shell">
       <header class="popup-header">
-        <p class="eyebrow">Algorand DeFi</p>
-        <h1>Safety Layer</h1>
+        <p class="eyebrow">Ether Browser</p>
+        <h1>Premium Web Actions</h1>
+        <p class="popup-subtitle">Unlock fast summaries, premium analysis, and TestNet wallet-powered actions from one place.</p>
       </header>
 
-      <section class="card">
+      <section class="card card-page">
+        <div class="card-topline">
+          <span class="section-chip">Live Tab</span>
+          <span class="section-chip section-chip-soft">Browser Overlay</span>
+        </div>
         <h2>Current Page</h2>
         <p id="page-url" class="wallet-meta">Loading active tab...</p>
         <p id="page-detection">Checking page type...</p>
@@ -26,7 +31,11 @@
         <p id="page-status" class="wallet-meta"></p>
       </section>
 
-      <section class="card">
+      <section class="card card-wallet">
+        <div class="card-topline">
+          <span class="section-chip">Wallet</span>
+          <span class="section-chip section-chip-soft">Algorand TestNet</span>
+        </div>
         <h2>Wallet</h2>
         <p id="wallet-state">Loading wallet state...</p>
         <p id="wallet-balance" class="wallet-meta">Balance: -- ALGO on Algorand TestNet</p>
