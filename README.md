@@ -1,928 +1,807 @@
-# EtherX
+# AlgoGate
 
-EtherX is a Chrome extension plus a local FastAPI backend for premium web actions.
+AlgoGate is a Python SDK for paywalling FastAPI routes with Algorand x402-style micropayments.
 
-The current product has three major parts:
+The goal is simple:
 
-1. A Chrome extension in `extension/`
-2. A FastAPI backend in `backend/`
-3. A React + Vite landing page in the repo root
+- a FastAPI developer adds `AlgoGate`
+- protected routes return `402 Payment Required` until they are paid for
+- the SDK scaffolds a Chrome extension beside the developer’s `main.py`
+- the extension creates a wallet, pays, retries the route, and shows the API response
 
-This README is intentionally detailed. It explains not just how to run the project, but also how the TypeScript side is structured, how Chrome actually loads the extension, how the wallet is stored, and how the premium payment flow works.
+This branch turns the project into an SDK-first repository.
 
-## What EtherX Does
+## What The SDK Gives A Developer
 
-Right now EtherX focuses on page-aware AI actions:
+When a developer writes:
 
-- detect the current page type
-- show a page action in the extension
-- run a free summary path
-- run a paid summary path
-- use an embedded Algorand wallet as the payer
-- verify payment on the backend
-- unlock the premium response after payment
+```python
+from fastapi import FastAPI
+from algogate import AlgoGate
 
-The UI surface currently exists in two places:
+gate = AlgoGate(
+    receiver="ALGORAND_ADDRESS",
+    price_microalgo=500_000,
+    network="testnet",
+    api_name="My Premium API"
+)
 
-- the popup
-- the injected right-side page panel
+app = FastAPI()
+gate.init_app(app)
 
-The popup is the main control surface for quick summary and premium summary.
+@app.get("/api/premium")
+@gate.protect
+async def premium_route():
+    return {"data": "secret premium content"}
+```
+
+AlgoGate does all of this:
+
+1. It adds middleware that understands payment errors and payment sessions.
+2. It adds SDK routes such as:
+   - `/algogate/dashboard`
+   - `/algogate/events`
+   - `/algogate/routes`
+   - `/algogate/health`
+   - `/algogate/verify`
+3. It protects the decorated route.
+4. It scaffolds an `algogate_extension/` folder next to the developer’s `main.py` on first run.
+5. That generated extension already contains:
+   - popup UI
+   - wallet onboarding
+   - local encrypted wallet storage
+   - 402 challenge handling
+   - Algorand payment signing
+   - route retry logic
 
 ---
 
-## Repository Structure
+## Repository Layout
 
 ```text
 .
-├── backend/
-│   ├── main.py
-│   ├── routers/
-│   ├── services/
-│   ├── scripts/
-│   ├── requirements.txt
-│   └── .env
-├── extension/
-│   ├── manifest.json
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── .env
-│   └── src/
-│       ├── background.ts
-│       ├── content/
-│       ├── popup/
-│       ├── onboarding/
-│       ├── options/
-│       ├── wallet/
-│       ├── lib/
-│       └── types/
-├── src/
-│   ├── App.jsx
-│   ├── main.jsx
-│   └── styles.css
-├── index.html
+├── algogate/
+│   ├── __init__.py
+│   ├── challenge.py
+│   ├── config.py
+│   ├── dashboard.py
+│   ├── exceptions.py
+│   ├── gate.py
+│   ├── middleware.py
+│   ├── payment.py
+│   ├── scaffold.py
+│   └── session.py
+├── requirements.txt
 └── README.md
 ```
 
+The actual browser extension is **not** committed as a shipped folder.
+
+Instead, it is generated at runtime by:
+
+- [scaffold.py](/Users/levi/Desktop/test/algogate/scaffold.py)
+
+That means the SDK ships the extension as templates inside Python code and writes them out on `gate.init_app(app)`.
+
 ---
 
-## High-Level Architecture
+## Installation
 
-At runtime, the system looks like this:
+```bash
+pip install -r requirements.txt
+```
 
-```text
-Web page
-  └─ content script injects EtherX pill + side panel
-       └─ asks background service worker for wallet state, balances, backend detection
+Requirements file:
 
-Popup
-  └─ reads active tab context from content script
-       └─ calls backend for free/premium summary
-            └─ premium route may return 402
-                 └─ popup uses embedded wallet to sign/send payment
-                      └─ backend verifies payment
-                           └─ popup retries premium request
+- [requirements.txt](/Users/levi/Desktop/test/requirements.txt)
 
-Backend
-  ├─ cleans HTML
-  ├─ calls Gemini
-  ├─ returns summary JSON
-  └─ verifies native ALGO payments for paid routes
+Current dependencies:
+
+- `fastapi>=0.110.0`
+- `httpx>=0.27.0`
+- `pyjwt>=2.8.0`
+- `python-dotenv>=1.0.0`
+- `websockets>=12.0`
+- `uvicorn>=0.29.0`
+
+No Python `algosdk` package is required.
+
+The SDK verifies payments with the Algorand indexer REST API through `httpx`.
+
+---
+
+## Minimal Usage
+
+```python
+from fastapi import FastAPI
+from algogate import AlgoGate
+
+gate = AlgoGate(
+    receiver="ABC123...",
+    price_microalgo=500_000,
+    network="testnet",
+    api_name="Weather Premium API",
+    api_key="my-internal-api-key"
+)
+
+app = FastAPI()
+gate.init_app(app)
+
+@app.get("/api/weather/free")
+async def free_weather():
+    return {"temp": "25C", "note": "basic data"}
+
+@app.get("/api/weather/premium")
+@gate.protect
+async def premium_weather():
+    return {
+        "temp": "25C",
+        "humidity": "72%",
+        "forecast": ["sunny", "windy", "cloudy"],
+        "alerts": ["none"]
+    }
+
+@app.get("/api/weather/detailed")
+@gate.protect_with_price(1_000_000)
+async def detailed_weather():
+    return {
+        "hourly": ["..."],
+        "radar": "..."
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
 ---
 
-## TypeScript: How It Works In This Project
+## How `AlgoGate` Works
 
-This project does **not** use a complex bundler pipeline for the extension runtime.
+Main class:
+
+- [gate.py](/Users/levi/Desktop/test/algogate/gate.py)
+
+### Constructor
+
+```python
+AlgoGate(
+    receiver: str,
+    price_microalgo: int,
+    network: str = "testnet",
+    api_name: str = "Protected API",
+    api_key: str = "",
+    session_ttl_seconds: int = 3600,
+    replay_cache_ttl: int = 86400,
+    scaffold_on_init: bool = True,
+)
+```
+
+Meaning of each field:
+
+- `receiver`
+  Algorand address that receives payments.
+
+- `price_microalgo`
+  Default route price in microALGO.
+  `1 ALGO = 1_000_000 microALGO`.
+
+- `network`
+  Either `testnet` or `mainnet`.
+
+- `api_name`
+  Human-readable name shown in the extension and dashboard.
+
+- `api_key`
+  Optional string embedded into the scaffolded extension `.env`.
+  The extension sends it as `X-API-Key` when making API requests.
+
+- `session_ttl_seconds`
+  After a valid on-chain payment, the SDK issues a JWT session token so future calls do not need to hit the chain again immediately.
+
+- `replay_cache_ttl`
+  How long used tx IDs stay in replay protection memory.
+
+- `scaffold_on_init`
+  If true, `gate.init_app(app)` writes the extension folder automatically.
+
+---
+
+## What `init_app(app)` Does
+
+When `gate.init_app(app)` runs, the SDK:
+
+1. attaches [AlgoGateMiddleware](/Users/levi/Desktop/test/algogate/middleware.py)
+2. registers:
+   - `GET /algogate/dashboard`
+   - `WS /algogate/events`
+   - `GET /algogate/routes`
+   - `GET /algogate/health`
+   - `POST /algogate/verify`
+3. stores the gate instance on `app.state.algogate`
+4. scaffolds the extension if enabled
+5. prints the startup banner
+
+### Startup Banner
+
+`init_app()` prints a startup banner showing:
+
+- API name
+- receiver
+- default price
+- network
+- dashboard URL
+- scaffold folder location
+- Chrome load instructions
+
+---
+
+## Protecting Routes
+
+There are two protection APIs.
+
+### Default Price
+
+```python
+@gate.protect
+```
+
+This uses the default `price_microalgo` set on the gate.
+
+### Per-Route Price Override
+
+```python
+@gate.protect_with_price(1_000_000)
+```
+
+This overrides the default for one route.
+
+### What The Decorator Does
+
+On every protected request, the decorator checks `X-Payment-Signature`.
+
+#### If the header is missing
+
+The route does not run.
 
 Instead:
 
-- the source of truth is `.ts`
-- TypeScript compiles those `.ts` files into `.js`
-- Chrome loads the compiled `.js`
-- the `.js` files live next to the `.ts` files inside `extension/src/`
+- a payment challenge is built
+- `PaymentRequired` is raised
+- middleware turns that into a `402` response
+- the `X-Payment-Required` header is set
 
-That means:
+#### If the header starts with `jwt.`
 
-- you edit `background.ts`
-- `tsc` produces `background.js`
-- the manifest points to `background.js`
+The SDK treats it as a local payment session token.
 
-### Important Consequence
+It verifies:
 
-You should treat the `.ts` files as the files you maintain and the `.js` files as build output.
+- token signature
+- token expiry
+- token route match
 
-In other words:
+If valid, the route runs immediately with no on-chain lookup.
 
-- edit `.ts`
-- run `npm run build`
-- reload the unpacked extension
+#### If the header is a tx id
 
-If you change `.ts` but do not rebuild, Chrome will still use the older `.js`.
+The SDK verifies the Algorand payment on-chain:
 
-That is one of the most common reasons an extension change seems like it “did not work.”
+- transaction exists
+- confirmed round exists
+- receiver matches
+- amount is enough
+- note starts with the expected route prefix
+- tx id has not already been used
 
----
+If valid:
 
-## Why Both `.ts` And `.js` Exist
-
-Chrome cannot execute TypeScript directly.
-
-It only knows how to load:
-
-- `.js`
-- `.html`
-- `.css`
-
-So the project keeps:
-
-- `background.ts` as the developer-friendly source
-- `background.js` as the compiled output Chrome actually runs
-
-The same is true for:
-
-- `popup.ts` -> `popup.js`
-- `content.ts` -> `content.js`
-- `onboarding.ts` -> `onboarding.js`
-- `options.ts` -> `options.js`
-- wallet helper modules in `wallet/`
-- shared helpers in `lib/`
+- a JWT payment session is issued
+- the route runs
+- the response gets `X-Payment-Session: jwt.<token>`
+- a dashboard event is broadcast
 
 ---
 
-## `tsconfig.json`: What It Means Here
+## 402 Challenge Format
 
-File: [tsconfig.json](/Users/levi/Desktop/test/extension/tsconfig.json)
+File:
 
-Current config:
+- [challenge.py](/Users/levi/Desktop/test/algogate/challenge.py)
 
-- `target: ES2022`
-  TypeScript emits modern JavaScript.
+Header used:
 
-- `module: ES2022`
-  The emitted code uses native ES modules.
+- `X-Payment-Required`
 
-- `moduleResolution: bundler`
-  This lets the project use modern import behavior cleanly during compilation.
+The header value is:
 
-- `lib: ["ES2022", "DOM"]`
-  The code can use browser APIs and modern JavaScript APIs.
+- base64-encoded JSON
 
-- `strict: true`
-  TypeScript checks types aggressively.
-
-- `allowJs: false`
-  `.js` files are not treated as source files by TypeScript.
-
-- `noEmitOnError: true`
-  If there is a TypeScript error, build output is not emitted.
-
-This matters because it protects the extension from half-broken builds.
-
----
-
-## Why Imports End With `.js` Inside `.ts`
-
-You will notice code like this in TypeScript:
-
-```ts
-import { getEnvConfig } from "./lib/env.js";
-```
-
-That is intentional.
-
-Even though the source file is `env.ts`, the runtime file after build is `env.js`.
-
-Chrome runs the emitted JavaScript, so the import path needs to match the final runtime file extension.
-
-This pattern is normal for TS projects that emit native ESM directly instead of bundling everything into one file.
-
----
-
-## The Extension Runtime Pieces
-
-The extension is split into several runtime surfaces.
-
-### 1. `background.ts`
-
-File: [background.ts](/Users/levi/Desktop/test/extension/src/background.ts)
-
-This is the service worker for the extension.
-
-Its job is to do background work that should not live in the popup or directly inside the page.
-
-What it currently handles:
-
-- reading and saving extension settings
-- wallet setup and wallet session state
-- wallet secret reveal
-- wallet balance fetches
-- backend-assisted page detection
-- protocol analysis helper calls
-
-Think of `background.ts` as the extension’s controller layer.
-
-It listens for `chrome.runtime.onMessage` and switches on message types like:
-
-- `GET_SETTINGS`
-- `SAVE_SETTINGS`
-- `GET_WALLET_STATUS`
-- `UNLOCK_WALLET_SESSION`
-- `GET_WALLET_BALANCE`
-- `DETECT_PAGE_WITH_BACKEND`
-
-So when popup or content code needs data or a privileged action, they usually message the background script.
-
-### 2. `content.ts`
-
-File: [content.ts](/Users/levi/Desktop/test/extension/src/content/content.ts)
-
-This script is injected into normal webpages.
-
-It does page-level UI and page-aware logic:
-
-- detects the current page
-- injects the EtherX action pill
-- injects the right-side panel
-- lets the panel run actions
-- sends the current page HTML to the backend
-- handles paid flow when needed
-
-This file owns the browser-page experience.
-
-It is also where the resizable right-side panel lives.
-
-### 3. `page_detector.ts`
-
-File: [page_detector.ts](/Users/levi/Desktop/test/extension/src/content/page_detector.ts)
-
-This is the fast local classifier.
-
-Its job is:
-
-- inspect the URL
-- classify common page types instantly
-- avoid hitting the backend for obvious pages
-
-Examples it detects directly:
-
-- YouTube watch pages
-- YouTube playlists
-- research paper sites
-- docs sites
-- Medium articles
-- Stack Overflow
-- GitHub
-- legal pages
-- Wikipedia
-
-If the detector does not know the page, it returns `check_backend`, and the background script can ask the FastAPI backend to classify it.
-
-### 4. `popup.ts`
-
-File: [popup.ts](/Users/levi/Desktop/test/extension/src/popup/popup.ts)
-
-This is the main user control surface.
-
-The popup does all of these:
-
-- reads the active tab
-- asks the content script for page context
-- shows wallet state
-- unlocks the wallet for the current session
-- copies wallet address
-- reveals secrets after unlock
-- runs quick summary
-- runs premium summary
-- handles the full payment retry flow for premium summary
-
-In practical terms, the popup is where the user spends most of their time.
-
-### 5. `onboarding.ts`
-
-File: [onboarding.ts](/Users/levi/Desktop/test/extension/src/onboarding/onboarding.ts)
-
-This controls the wallet setup page.
-
-It supports:
-
-- create wallet
-- import wallet
-- phrase reveal
-- phrase verification
-- saving encrypted wallet data
-
-Create flow:
-
-1. user sets password
-2. extension generates Algorand account
-3. 25-word mnemonic is shown
-4. user confirms selected words
-5. wallet is encrypted and saved
-
-### 6. `options.ts`
-
-File: [options.ts](/Users/levi/Desktop/test/extension/src/options/options.ts)
-
-This is a small settings page.
-
-It currently controls:
-
-- Gemini model preference
-- whether premium payment prompts are enabled
-
-It is intentionally lighter than popup and onboarding.
-
----
-
-## Wallet Modules
-
-The wallet logic is split into several focused TypeScript modules.
-
-### `wallet/algorand.ts`
-
-File: [algorand.ts](/Users/levi/Desktop/test/extension/src/wallet/algorand.ts)
-
-This file handles raw Algorand wallet creation/import logic:
-
-- generate account
-- convert secret key to mnemonic
-- import mnemonic into account
-- normalize mnemonic
-- serialize the account into a shape the extension can store
-
-Important detail:
-
-This file uses the browser build of `algosdk`, loaded from:
-
-- `node_modules/algosdk/dist/browser/algosdk.min.js`
-
-That global script is declared in TypeScript using a `declare const algosdk` shape.
-
-### `wallet/crypto.ts`
-
-File: [crypto.ts](/Users/levi/Desktop/test/extension/src/wallet/crypto.ts)
-
-This file handles local encryption.
-
-It uses Web Crypto:
-
-- PBKDF2 for password-based key derivation
-- AES-GCM for encrypting the wallet payload
-
-This is the protection layer for:
-
-- mnemonic
-- private key
-- address
-
-The extension does not store the raw wallet secrets directly as plain text in persistent storage.
-
-### `wallet/vault.ts`
-
-File: [vault.ts](/Users/levi/Desktop/test/extension/src/wallet/vault.ts)
-
-This file is the storage adapter for the encrypted wallet vault.
-
-It stores:
-
-- encrypted vault record in `chrome.storage.local`
-- metadata like address and created timestamp
-
-### `wallet/service.ts`
-
-File: [service.ts](/Users/levi/Desktop/test/extension/src/wallet/service.ts)
-
-This is the higher-level wallet service used by the rest of the extension.
-
-It combines:
-
-- vault read/write
-- encryption/decryption
-- wallet session state
-- settings sync
-
-Important behavior:
-
-- encrypted vault lives in `chrome.storage.local`
-- unlocked wallet session lives in `chrome.storage.session`
-
-So the password is not needed on every premium request.
-
-The intended UX is:
-
-1. unlock once
-2. session stays unlocked
-3. premium actions reuse that in-memory/session wallet
-
----
-
-## Shared Extension Helpers
-
-### `lib/storage.ts`
-
-File: [storage.ts](/Users/levi/Desktop/test/extension/src/lib/storage.ts)
-
-This manages extension settings in `chrome.storage.sync`.
-
-It defines:
-
-- `ExtensionSettings`
-- default settings
-- `getSettings()`
-- `setSettings()`
-
-This is where app-level preferences live.
-
-### `lib/env.ts`
-
-File: [env.ts](/Users/levi/Desktop/test/extension/src/lib/env.ts)
-
-This reads the extension-local `.env` file.
-
-That file is exposed through `web_accessible_resources` in the manifest, so runtime code can fetch it with:
-
-```ts
-fetch(chrome.runtime.getURL(".env"))
-```
-
-The parsed values currently include:
-
-- `GEMINI_API_KEY`
-- `GEMINI_MODEL`
-- `ETHER_API_BASE_URL`
-- `ETHER_API_KEY`
-
----
-
-## Manifest: How Chrome Knows What To Load
-
-File: [manifest.json](/Users/levi/Desktop/test/extension/manifest.json)
-
-This file is the extension entrypoint for Chrome.
-
-Important parts:
-
-### `background`
+Shape:
 
 ```json
-"background": {
-  "service_worker": "src/background.js",
-  "type": "module"
+{
+  "receiver": "ADDR...",
+  "amount": 500000,
+  "network": "testnet",
+  "note_prefix": "abcd1234efgh5678",
+  "api_name": "My Premium API",
+  "expires": 1712345678
 }
 ```
 
-Chrome loads the compiled `background.js`, not `background.ts`.
+### Why `note_prefix` Exists
 
-### `action.default_popup`
+The note prefix ties a transaction to a specific protected route.
+
+AlgoGate derives it from:
+
+- `sha256(route_path).hexdigest()[:16]`
+
+The extension then sends a note like:
+
+```text
+<note_prefix>:<timestamp>
+```
+
+The backend checks that the on-chain note starts with the correct prefix.
+
+That prevents a payment meant for one route from being replayed against another route.
+
+---
+
+## On-Chain Payment Verification
+
+File:
+
+- [payment.py](/Users/levi/Desktop/test/algogate/payment.py)
+
+AlgoGate uses the Algorand indexer REST API with `httpx`.
+
+No Python `algosdk` is used on the backend.
+
+### Indexer URLs
+
+- testnet: `https://testnet-idx.algonode.cloud`
+- mainnet: `https://mainnet-idx.algonode.cloud`
+
+### What Gets Verified
+
+For a tx id, AlgoGate checks:
+
+1. the transaction exists
+2. `confirmed-round` exists
+3. `payment-transaction.receiver == expected_receiver`
+4. `payment-transaction.amount >= expected_amount`
+5. decoded note starts with `expected_note_prefix`
+
+If any check fails:
+
+- `InvalidSignature` is raised
+
+If the tx id was already used:
+
+- `ReplayAttack` is raised
+
+---
+
+## Replay Protection
+
+Also in:
+
+- [payment.py](/Users/levi/Desktop/test/algogate/payment.py)
+
+Replay protection is an in-memory cache:
+
+```python
+_used_tx_ids: dict[str, float]
+```
+
+Meaning:
+
+- key = tx id
+- value = first-use timestamp
+
+Before accepting a tx:
+
+- the SDK prunes expired entries
+- checks whether the tx id was already used
+- rejects it if so
+
+Important note:
+
+This is process memory only.
+
+If a developer wants multi-instance or persistent replay protection, they would later swap this for Redis or database storage. The current SDK keeps it simple and self-contained.
+
+---
+
+## Payment Sessions (JWT)
+
+File:
+
+- [session.py](/Users/levi/Desktop/test/algogate/session.py)
+
+After the first successful on-chain verification:
+
+- a JWT is issued
+- signed with HMAC-SHA256
+- secret derived from the receiver address
+
+Payload:
 
 ```json
-"default_popup": "src/popup/popup.html"
+{
+  "sub": "<tx_id>",
+  "route": "/api/premium",
+  "exp": 1712349999
+}
 ```
 
-Chrome opens the popup HTML, and that HTML loads `popup.js`.
+Clients can send:
 
-### `content_scripts`
+```http
+X-Payment-Signature: jwt.<token>
+```
+
+This avoids going back to the Algorand indexer on every request.
+
+---
+
+## Middleware Behavior
+
+File:
+
+- [middleware.py](/Users/levi/Desktop/test/algogate/middleware.py)
+
+The middleware has three main jobs:
+
+1. place the current `Request` into a context variable so the route decorator can read headers and route path without forcing the developer to add `request: Request` to every endpoint
+2. catch:
+   - `PaymentRequired`
+   - `InvalidSignature`
+   - `ReplayAttack`
+3. translate them into HTTP responses
+
+Status mapping:
+
+- `PaymentRequired` -> `402`
+- `InvalidSignature` -> `403`
+- `ReplayAttack` -> `409`
+
+It also exposes:
+
+- `X-Payment-Required`
+- `X-Payment-Session`
+
+through `Access-Control-Expose-Headers`.
+
+---
+
+## Dashboard And Event Stream
+
+File:
+
+- [dashboard.py](/Users/levi/Desktop/test/algogate/dashboard.py)
+
+### `GET /algogate/dashboard`
+
+Returns a self-contained HTML dashboard that shows:
+
+- API name
+- receiver
+- network
+- default price
+- live payment event list
+
+### `WS /algogate/events`
+
+Broadcasts payment verification events.
+
+Event shape:
 
 ```json
-"js": [
-  "node_modules/algosdk/dist/browser/algosdk.min.js",
-  "src/data/protocols.js",
-  "src/content/page_detector.js",
-  "src/content/content.js"
-]
+{
+  "tx_id": "...",
+  "route": "/api/premium",
+  "amount": 500000,
+  "caller_ip": "127.0.0.1",
+  "timestamp": "...",
+  "session_issued": true
+}
 ```
 
-This means every normal webpage gets:
-
-1. Algorand SDK browser build
-2. protocol data
-3. page detector
-4. content script
-
-That ordering matters.
-
-The detector and content script expect those earlier globals to already exist.
+The dashboard page subscribes to this websocket and updates live.
 
 ---
 
-## How The TypeScript Build Works
+## SDK Routes Added Automatically
 
-In [extension/package.json](/Users/levi/Desktop/test/extension/package.json), the build command is:
+After `init_app(app)`, these SDK routes exist:
+
+### `GET /algogate/dashboard`
+
+Live HTML dashboard.
+
+### `WS /algogate/events`
+
+Live event feed.
+
+### `GET /algogate/routes`
+
+Returns all protected routes discovered from the FastAPI app.
+
+Each route entry includes:
+
+- path
+- methods
+- `price_microalgo`
+- `price_algo`
+- `api_name`
+
+### `GET /algogate/health`
+
+Returns:
 
 ```json
-"build": "tsc -p tsconfig.json"
+{
+  "status": "ok",
+  "receiver": "...",
+  "network": "testnet",
+  "price": 500000
+}
 ```
 
-That means the extension build is currently:
+### `POST /algogate/verify`
 
-- pure TypeScript compiler
-- no complex bundling step
-- no Webpack/Rollup packing of the runtime files
+Request:
 
-Build command:
-
-```bash
-cd extension
-npm install
-npm run build
+```json
+{
+  "tx_id": "..."
+}
 ```
 
-What happens after build:
+This is used by the generated extension while waiting for payment confirmation.
 
-- every `.ts` included by `tsconfig.json` gets emitted to `.js`
-- those `.js` files are what the extension runs
+It verifies that:
 
-After build, you must reload the unpacked extension in Chrome.
-
----
-
-## Why `types/chrome.d.ts` Exists
-
-File: [chrome.d.ts](/Users/levi/Desktop/test/extension/src/types/chrome.d.ts)
-
-This file exists so TypeScript understands Chrome extension globals and APIs.
-
-Without declaration files like this, you would get a lot of missing-type errors in strict mode.
-
-It is part of the reason the TS side can stay strict while still using browser/extension globals.
+- the transaction exists
+- it is confirmed
+- it was sent to the configured receiver
 
 ---
 
-## Popup Flow: Step By Step
+## Scaffolded Extension
 
-When the popup opens:
+File:
 
-1. `popup.ts` asks Chrome for the active tab
-2. it sends `GET_PAGE_DETECTION` to the content script
-3. it loads wallet state from the background script
-4. it renders page status and wallet status
+- [scaffold.py](/Users/levi/Desktop/test/algogate/scaffold.py)
 
-When the user clicks `Quick Summary`:
+On first `init_app(app)` run, AlgoGate writes:
 
-1. popup asks content script for `GET_PAGE_CONTEXT`
-2. content script returns:
-   - current URL
-   - page title
-   - page HTML
-   - current detection
-3. popup sends URL + HTML to `/api/summarize/free`
-4. backend cleans HTML
-5. backend calls Gemini free model
-6. popup renders the returned JSON summary
+```text
+algogate_extension/
+  manifest.json
+  .env
+  src/
+    background.js
+    popup/
+      popup.html
+      popup.js
+      popup.css
+    wallet/
+      algorand.js
+      crypto.js
+      vault.js
+      service.js
+    lib/
+      env.js
+      api.js
+    onboarding/
+      onboarding.html
+      onboarding.js
+      onboarding.css
+  node_modules/
+    algosdk/dist/browser/algosdk.min.js
+```
 
-When the user clicks `Premium Action`:
+### Where It Gets Written
 
-1. popup asks backend for `/api/summarize/paid`
-2. backend returns `402 Payment Required` if not already paid
-3. popup decodes the payment challenge
-4. popup checks wallet unlock state
-5. popup checks balance
-6. popup asks user to approve payment
-7. popup signs and sends ALGO payment
-8. popup polls `/api/payments/confirm`
-9. popup retries `/api/summarize/paid` with `PAYMENT-SIGNATURE`
-10. popup renders premium summary
+It is written next to the developer’s `main.py`, using `inspect.stack()` to find the caller directory.
 
----
+### What Goes Into The Generated `.env`
 
-## Content Script Flow: Step By Step
-
-When a page loads:
-
-1. `content.ts` runs
-2. it calls `window.detectPageType(url, title)`
-3. if local rules know the page, it mounts the UI immediately
-4. if the page is unknown, it asks the background script to call backend detection
-5. it creates:
-   - floating action pill
-   - side toggle
-   - right-side panel
-
-When the URL changes in an SPA:
-
-- a `MutationObserver` notices URL change
-- detection reruns
-- the UI tears down and remounts with the new classification
-
-That is why sites like YouTube or GitHub can still update correctly without a full hard refresh.
-
----
-
-## Backend: What It Does
-
-The backend lives in `backend/`.
-
-Main entry:
-
-- [main.py](/Users/levi/Desktop/test/backend/main.py)
-
-Routers:
-
-- [summarize.py](/Users/levi/Desktop/test/backend/routers/summarize.py)
-- [detect.py](/Users/levi/Desktop/test/backend/routers/detect.py)
-- [payments.py](/Users/levi/Desktop/test/backend/routers/payments.py)
-- [score.py](/Users/levi/Desktop/test/backend/routers/score.py)
-- [translate.py](/Users/levi/Desktop/test/backend/routers/translate.py)
-- [writing.py](/Users/levi/Desktop/test/backend/routers/writing.py)
-- [articles.py](/Users/levi/Desktop/test/backend/routers/articles.py)
-
-Services:
-
-- [gemini_service.py](/Users/levi/Desktop/test/backend/services/gemini_service.py)
-- [cleaner.py](/Users/levi/Desktop/test/backend/services/cleaner.py)
-- [payment_service.py](/Users/levi/Desktop/test/backend/services/payment_service.py)
-
-### `cleaner.py`
-
-This extracts readable text from raw HTML.
-
-It:
-
-- strips scripts/styles/nav/footer/header/aside
-- prefers `main` and `article`
-- falls back to general text if necessary
-- caps output at 12,000 chars
-
-### `gemini_service.py`
-
-This stores:
-
-- all system prompts in one place
-- free and paid model names
-- the Gemini HTTP call helper
-
-It expects JSON-only model output and parses that JSON before returning it.
-
-### `payment_service.py`
-
-This handles the premium payment gate.
-
-It:
-
-- builds a `402 Payment Required` response
-- encodes the payment challenge in `PAYMENT-REQUIRED`
-- verifies `PAYMENT-SIGNATURE`
-- checks Algorand transaction data
-- confirms:
-  - sender
-  - receiver
-  - amount
-  - note
-  - confirmation state
-
-This is the key payment service behind premium routes.
-
----
-
-## Backend Routes: What Each One Does
-
-### `/api/summarize/free`
-
-- cleans the HTML
-- calls Gemini free model
-- returns a compact free summary
-
-### `/api/summarize/paid`
-
-- checks payment first
-- if not paid, returns `402`
-- if paid, calls Gemini paid model
-- returns deeper summary
-
-### `/api/detect`
-
-- first tries hardcoded URL rules
-- if the URL is unknown, cleans HTML and calls Gemini for classification
-
-### `/api/payments/confirm`
-
-- verifies the payment signature payload
-- checks on-chain payment confirmation
-- returns `200` once valid
-
-### `/api/score/free` and `/api/score/paid`
-
-- content relevance / payment-worth scoring
-
-### `/api/translate/free` and `/api/translate/paid`
-
-- translation features
-
-### `/api/writing/free` and `/api/writing/paid`
-
-- writing transformation features
-
-### `/api/articles`
-
-- preview list for demo paywalled articles
-
-### `/api/articles/1`, `/2`, `/3`
-
-- paid article demo routes
-
----
-
-## Environment Files
-
-### Backend `.env`
-
-Use [backend/.env.example](/Users/levi/Desktop/test/backend/.env.example) as the template.
-
-Expected values:
+The scaffold writes:
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_FREE_MODEL=gemini-2.5-flash
-GEMINI_PAID_MODEL=gemini-2.5-flash
-AVM_ADDRESS=YOUR_ALGORAND_RECEIVER_ADDRESS
-FACILITATOR_URL=https://facilitator.goplausible.xyz
+ALGO_RECEIVER=<gate.receiver>
+ALGO_NETWORK=<gate.network>
+PRICE_MICROALGO=<gate.price_microalgo>
+API_BASE_URL=http://127.0.0.1:8000
+API_KEY=<gate.api_key>
+API_NAME=<gate.api_name>
 ```
 
-### Extension `.env`
+### If The Folder Already Exists
 
-Use [extension/.env.example](/Users/levi/Desktop/test/extension/.env.example) as the template.
-
-Expected values:
-
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-ETHER_API_BASE_URL=http://127.0.0.1:8000
-ETHER_API_KEY=ether-browser-dev
-```
+AlgoGate skips regeneration and prints a message.
 
 ---
 
-## How To Run Everything
+## How The Generated Extension Works
 
-### Backend
+The generated extension is plain JavaScript.
 
-```bash
-cd backend
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-PYTHONPATH=/Users/levi/Desktop/test .venv/bin/uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
-```
+It does not require npm install after scaffold.
 
-Health check:
+### Popup
 
-```bash
-curl http://127.0.0.1:8000/health
-```
+Files:
 
-### Extension
+- `src/popup/popup.html`
+- `src/popup/popup.js`
+- `src/popup/popup.css`
 
-```bash
-cd extension
-npm install
-npm run build
-```
+It has two main states.
+
+#### State 1: No Wallet
+
+Shows:
+
+- welcome heading
+- API name
+- setup wallet button
+
+#### State 2: Wallet Exists
+
+Shows:
+
+- truncated wallet address
+- balance
+- receiver
+- network badge
+- route selector
+- call API button
+- response panel
+- wallet unlock / lock controls
+- settings panel
+
+### Onboarding
+
+Files:
+
+- `src/onboarding/onboarding.html`
+- `src/onboarding/onboarding.js`
+- `src/onboarding/onboarding.css`
+
+Flow:
+
+1. create password
+2. choose create or import
+3. create path shows 25-word mnemonic
+4. user confirms 3 random words
+5. wallet is encrypted with AES-GCM
+6. encrypted vault stored in `chrome.storage.local`
+7. unlocked session stored in `chrome.storage.session`
+8. redirect to popup
+
+### Wallet Storage
+
+Files:
+
+- `src/wallet/crypto.js`
+- `src/wallet/vault.js`
+- `src/wallet/service.js`
+
+The extension stores:
+
+- encrypted wallet vault in `chrome.storage.local`
+- unlocked session in `chrome.storage.session`
+
+So the password is needed once per session, not on every API call.
+
+### Payment Flow In The Extension
+
+Client-side core:
+
+- `src/lib/api.js`
+
+Flow:
+
+1. call protected route
+2. if `402`, read `X-Payment-Required`
+3. decode challenge
+4. ask for payment confirmation
+5. sign Algorand payment
+6. submit tx
+7. poll `/algogate/verify`
+8. retry route with `X-Payment-Signature: <tx_id>`
+9. store `X-Payment-Session` if returned
+
+Future calls can reuse the JWT session token automatically.
+
+---
+
+## Loading The Generated Extension
+
+After the developer runs their FastAPI app once:
+
+1. open `chrome://extensions`
+2. enable `Developer mode`
+3. click `Load unpacked`
+4. select the generated `algogate_extension/` folder
 
 Then:
 
-1. open `chrome://extensions`
-2. enable Developer Mode
-3. click `Load unpacked`
-4. select [extension](/Users/levi/Desktop/test/extension)
+1. open the popup
+2. set up wallet
+3. select a protected route
+4. click `Call API`
+5. approve payment
+6. view the API response in the popup
 
-Every time you change TypeScript:
+---
 
-1. save the `.ts` file
-2. run `npm run build`
-3. reload the extension in Chrome
-4. refresh the page you are testing
+## Internal File Guide
 
-### Landing Page
+### Core Python SDK Files
+
+- [config.py](/Users/levi/Desktop/test/algogate/config.py)
+  Shared validated config object.
+
+- [exceptions.py](/Users/levi/Desktop/test/algogate/exceptions.py)
+  SDK exceptions.
+
+- [challenge.py](/Users/levi/Desktop/test/algogate/challenge.py)
+  Challenge building, note prefixing, base64 encoding.
+
+- [payment.py](/Users/levi/Desktop/test/algogate/payment.py)
+  On-chain verification + replay protection.
+
+- [session.py](/Users/levi/Desktop/test/algogate/session.py)
+  JWT issue/verify logic.
+
+- [middleware.py](/Users/levi/Desktop/test/algogate/middleware.py)
+  Exception-to-response translation and request context handling.
+
+- [dashboard.py](/Users/levi/Desktop/test/algogate/dashboard.py)
+  Web dashboard + websocket broadcaster.
+
+- [scaffold.py](/Users/levi/Desktop/test/algogate/scaffold.py)
+  Extension generator.
+
+- [gate.py](/Users/levi/Desktop/test/algogate/gate.py)
+  Public developer API.
+
+- [__init__.py](/Users/levi/Desktop/test/algogate/__init__.py)
+  Re-exports `AlgoGate`.
+
+---
+
+## Current Sanity Checks Run
+
+On this branch, the SDK package files compile with:
 
 ```bash
-npm install
-npm run dev
+python3 -m py_compile algogate/*.py
 ```
 
----
-
-## How To Add A New Extension Feature In TypeScript
-
-Suppose you want to add a new popup action.
-
-The normal pattern is:
-
-1. add UI in `popup.html`
-2. add logic in `popup.ts`
-3. if it needs background state, add a message type in `background.ts`
-4. if it needs backend data, add a route in FastAPI
-5. if it needs page-specific context, add a message in `content.ts`
-6. run `npm run build`
-7. reload extension
-
-Suppose you want a new page type:
-
-1. add local rule in `page_detector.ts`
-2. decide whether it should use free, paid, or backend detection
-3. update label/price behavior if needed
-4. rebuild
-
-Suppose you want a new wallet behavior:
-
-1. if it is raw Algorand logic, update `wallet/algorand.ts`
-2. if it is encryption/session behavior, update `wallet/crypto.ts` or `wallet/service.ts`
-3. if it changes stored shape, update `vault.ts`
-4. rebuild and test onboarding + popup
+That validates the Python syntax of the package files.
 
 ---
 
-## Common Gotchas
+## Notes
 
-### 1. “I changed TS but nothing changed in Chrome”
+- The generated extension is intentionally self-contained.
+- The backend verification uses Algorand indexer REST, not Python algosdk.
+- Replay protection is in-memory.
+- Session tokens are route-scoped.
+- The scaffold copies or downloads the browser Algorand SDK bundle so the generated extension does not need npm install.
 
-Usually means:
+If you want, the next step can be:
 
-- you forgot `npm run build`, or
-- you forgot to reload the unpacked extension, or
-- you forgot to refresh the page after reloading the extension
-
-### 2. “The popup still shows old text”
-
-Same cause: Chrome is loading the old emitted `.js`.
-
-### 3. “Quick summary says Gemini unavailable”
-
-Usually means:
-
-- bad Gemini key
-- restricted key
-- `403` from Gemini
-- backend not restarted after env change
-
-### 4. “Premium flow returns 402”
-
-That is normal on the first paid request.
-
-The expected sequence is:
-
-1. initial premium request -> `402`
-2. wallet signs payment
-3. `/api/payments/confirm`
-4. retry premium request
-
-### 5. “Content script seems stale”
-
-After reloading the extension, refresh the actual page tab too.
-
-Content scripts do not always update on already-open pages until refresh.
-
----
-
-## Files To Read First If You Are New
-
-If you only want the fastest orientation, read these in order:
-
-1. [extension/manifest.json](/Users/levi/Desktop/test/extension/manifest.json)
-2. [extension/src/background.ts](/Users/levi/Desktop/test/extension/src/background.ts)
-3. [extension/src/content/page_detector.ts](/Users/levi/Desktop/test/extension/src/content/page_detector.ts)
-4. [extension/src/content/content.ts](/Users/levi/Desktop/test/extension/src/content/content.ts)
-5. [extension/src/popup/popup.ts](/Users/levi/Desktop/test/extension/src/popup/popup.ts)
-6. [extension/src/wallet/service.ts](/Users/levi/Desktop/test/extension/src/wallet/service.ts)
-7. [backend/main.py](/Users/levi/Desktop/test/backend/main.py)
-8. [backend/routers/summarize.py](/Users/levi/Desktop/test/backend/routers/summarize.py)
-9. [backend/services/payment_service.py](/Users/levi/Desktop/test/backend/services/payment_service.py)
-
----
-
-## Current Status
-
-What is already in place:
-
-- detailed page detection
-- popup summary flow
-- embedded wallet flow
-- paid premium summary path
-- backend payment verification
-- resizable side panel
-
-What is still a future improvement:
-
-- richer ad-blocking workflow for YouTube
-- more premium actions beyond summary
-- more polished analytics / usage views
-- broader page-type monetization logic
-
----
-
-## Short Summary
-
-If you want the simplest mental model:
-
-- `manifest.json` tells Chrome what to load
-- `.ts` files are the source of truth
-- `npm run build` turns `.ts` into `.js`
-- Chrome runs the `.js`
-- `background.ts` is the controller
-- `content.ts` is the page UI
-- `popup.ts` is the main user control surface
-- wallet modules handle encryption, storage, and session unlock
-- FastAPI handles detection, summaries, and payment verification
-- premium actions are just: `402 -> pay -> confirm -> retry`
+1. scaffold a sample developer app using this SDK
+2. run it locally
+3. load the generated `algogate_extension/`
+4. test the end-to-end payment flow

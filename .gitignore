@@ -1,7 +1,9 @@
 extension/.env
 backend/.env
 .venv/
+.venv-sdk/
 __pycache__/
 .qtwebengine/
 node_modules/
 extension/node_modules/
+algogate_extension/
