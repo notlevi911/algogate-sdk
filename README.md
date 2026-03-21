@@ -87,8 +87,22 @@ That means the SDK ships the extension as templates inside Python code and write
 
 ## Installation
 
+For local development:
+
 ```bash
-pip install -r requirements.txt
+python3 -m pip install .
+```
+
+For editable local development:
+
+```bash
+python3 -m pip install -e .
+```
+
+The intended published package name is:
+
+```bash
+pip install algogate-sdk
 ```
 
 Requirements file:
@@ -98,8 +112,8 @@ Requirements file:
 Current dependencies:
 
 - `fastapi>=0.110.0`
+- `pydantic>=2.7.0`
 - `httpx>=0.27.0`
-- `pyjwt>=2.8.0`
 - `python-dotenv>=1.0.0`
 - `websockets>=12.0`
 - `uvicorn>=0.29.0`
@@ -107,6 +121,31 @@ Current dependencies:
 No Python `algosdk` package is required.
 
 The SDK verifies payments with the Algorand indexer REST API through `httpx`.
+
+---
+
+## PyPI And CI
+
+This branch includes release-ready packaging files:
+
+- [pyproject.toml](/Users/levi/Desktop/test/pyproject.toml)
+- [setup.py](/Users/levi/Desktop/test/setup.py)
+- [MANIFEST.in](/Users/levi/Desktop/test/MANIFEST.in)
+- [LICENSE](/Users/levi/Desktop/test/LICENSE)
+
+And GitHub Actions workflows:
+
+- [ci.yml](/Users/levi/Desktop/test/.github/workflows/ci.yml)
+- [publish-testpypi.yml](/Users/levi/Desktop/test/.github/workflows/publish-testpypi.yml)
+- [publish-pypi.yml](/Users/levi/Desktop/test/.github/workflows/publish-pypi.yml)
+
+Recommended release flow:
+
+1. Push changes to `sdk`
+2. Run the TestPyPI workflow manually
+3. Verify install from TestPyPI
+4. Create a GitHub release
+5. The PyPI publish workflow runs automatically
 
 ---
 

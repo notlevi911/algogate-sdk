@@ -3,12 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "algogate"
+name = "algogate-sdk"
 version = "0.1.0"
 description = "Paywall FastAPI routes with Algorand micropayments and a scaffolded Chrome wallet extension."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
   { name = "AlgoGate" }
 ]
@@ -21,6 +21,28 @@ dependencies = [
   "websockets>=12.0",
   "uvicorn>=0.29.0",
 ]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/notlevi911/ether-browser/tree/sdk"
+Documentation = "https://github.com/notlevi911/ether-browser/tree/sdk/algogate-sdk"
+Repository = "https://github.com/notlevi911/ether-browser"
+Issues = "https://github.com/notlevi911/ether-browser/issues"
 
 [tool.setuptools]
 packages = ["algogate"]
+include-package-data = true

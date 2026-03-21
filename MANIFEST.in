@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+recursive-include algogate *.py
+recursive-include algogate-sdk *.md *.py

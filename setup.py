@@ -2,7 +2,7 @@ from setuptools import setup
 
 
 setup(
-    name="algogate",
+    name="algogate-sdk",
     version="0.1.0",
     description="Paywall FastAPI routes with Algorand micropayments and a scaffolded Chrome wallet extension.",
     packages=["algogate"],
