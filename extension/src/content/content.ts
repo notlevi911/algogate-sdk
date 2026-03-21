@@ -7,10 +7,13 @@
     root: null,
     pill: null,
     panel: null,
-    analysisBox: null,
+    resultBox: null,
     walletState: null,
+    walletBalance: null,
+    passwordInput: null,
     detection: null,
-    requestId: 0
+    requestId: 0,
+    panelOpen: false
   };
 
   runDetection(state).catch((error: unknown) => {
@@ -18,12 +21,38 @@
   });
 
   chrome.runtime.onMessage.addListener((
-    message: { type?: string },
+    message: { type?: string; payload?: { tier?: "free" | "paid" } },
     _sender: unknown,
-    sendResponse: (value: PageActionDetection) => void
+    sendResponse: (value: unknown) => void
   ) => {
     if (message?.type === "GET_PAGE_DETECTION") {
       sendResponse(state.detection ?? noneDetection());
+      return true;
+    }
+
+    if (message?.type === "OPEN_ETHER_PANEL") {
+      openPanel(state);
+      sendResponse({ ok: true });
+      return true;
+    }
+
+    if (message?.type === "RUN_PAGE_ACTION") {
+      const tier = message.payload?.tier === "paid" ? "paid" : "free";
+      const detection = state.detection;
+      if (!detection || detection.action === "none") {
+        sendResponse({ ok: false, error: "No supported action for this page yet." });
+        return true;
+      }
+
+      openPanel(state);
+      runPageAction(state, detection, tier)
+        .then(() => sendResponse({ ok: true }))
+        .catch((error: unknown) =>
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : "Action failed."
+          })
+        );
       return true;
     }
 
@@ -41,11 +70,61 @@ interface ContentState {
   root: HTMLDivElement | null;
   pill: HTMLButtonElement | null;
   panel: HTMLElement | null;
-  analysisBox: HTMLElement | null;
+  resultBox: HTMLElement | null;
   walletState: HTMLElement | null;
+  walletBalance: HTMLElement | null;
+  passwordInput: HTMLInputElement | null;
   detection: PageActionDetection | null;
   requestId: number;
+  panelOpen: boolean;
 }
+
+interface ExtensionEnvConfig {
+  apiBaseUrl: string;
+  apiKey: string;
+}
+
+interface WalletStatus {
+  initialized?: boolean;
+  address?: string;
+  network?: string;
+}
+
+interface WalletSecrets {
+  address: string;
+  network: string;
+  mnemonic: string;
+  secretKeyBase64: string;
+}
+
+interface WalletBalance {
+  algo?: string;
+  usdc?: string;
+}
+
+interface X402PaymentRequired {
+  x402Version?: number;
+  error?: string;
+  resource?: {
+    url?: string;
+    description?: string;
+    mimeType?: string;
+  };
+  accepts?: X402PaymentRequirement[];
+  extensions?: Record<string, unknown>;
+}
+
+interface X402PaymentRequirement {
+  scheme: string;
+  network: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  maxTimeoutSeconds?: number;
+  extra?: Record<string, unknown>;
+}
+
+let cachedEnvConfig: ExtensionEnvConfig | null = null;
 
 async function runDetection(state: ContentState) {
   const requestId = ++state.requestId;
@@ -70,6 +149,7 @@ async function runDetection(state: ContentState) {
       price: 0,
       tier: "backend"
     };
+
     await chrome.runtime.sendMessage({
       type: "SET_LAST_DETECTED_PAGE_TYPE",
       payload: { pageType: "unknown" }
@@ -88,11 +168,11 @@ async function runDetection(state: ContentState) {
     }
 
     if (!response?.ok || !response.result?.summarizable) {
+      state.detection = noneDetection();
       return;
     }
 
-    const backendDetection = normalizeBackendDetection(response.result);
-    await mountUi(state, backendDetection);
+    await mountUi(state, normalizeBackendDetection(response.result));
     return;
   }
 
@@ -113,11 +193,11 @@ async function mountUi(state: ContentState, detection: PageActionDetection) {
   const pill = document.createElement("button");
   pill.id = "algo-safety-action-pill";
   pill.textContent = formatPillText(detection);
-  pill.addEventListener("click", () => handlePageAction(detection));
+  pill.addEventListener("click", () => openPanel(state));
 
   const toggle = document.createElement("button");
   toggle.id = "algo-safety-toggle";
-  toggle.textContent = "Safety Layer";
+  toggle.textContent = "Ether Tools";
 
   const panel = document.createElement("aside");
   panel.id = "algo-safety-panel";
@@ -128,107 +208,520 @@ async function mountUi(state: ContentState, detection: PageActionDetection) {
   root.appendChild(panel);
   document.documentElement.appendChild(root);
 
+  if (state.panelOpen) {
+    panel.classList.add("is-open");
+  }
+
   const closeButton = panel.querySelector<HTMLElement>("[data-close]");
-  const connectButton = panel.querySelector<HTMLButtonElement>("[data-connect-wallet]");
-  const analyzeButton = panel.querySelector<HTMLButtonElement>("[data-deep-analyze]");
-  const analysisBox = panel.querySelector<HTMLElement>("[data-analysis-box]");
+  const walletButton = panel.querySelector<HTMLButtonElement>("[data-open-wallet]");
+  const refreshWalletButton = panel.querySelector<HTMLButtonElement>("[data-refresh-wallet]");
+  const freeButton = panel.querySelector<HTMLButtonElement>("[data-run-free]");
+  const paidButton = panel.querySelector<HTMLButtonElement>("[data-run-paid]");
+  const resultBox = panel.querySelector<HTMLElement>("[data-result-box]");
   const walletState = panel.querySelector<HTMLElement>("[data-wallet-state]");
+  const walletBalance = panel.querySelector<HTMLElement>("[data-wallet-balance]");
+  const passwordInput = panel.querySelector<HTMLInputElement>("[data-wallet-password]");
 
-  toggle.addEventListener("click", () => panel.classList.add("is-open"));
-  closeButton?.addEventListener("click", () => panel.classList.remove("is-open"));
-
-  connectButton?.addEventListener("click", async () => {
-    if (walletState) {
-      walletState.textContent =
-        "Open the extension popup and create or import your embedded wallet.";
+  toggle.addEventListener("click", () => {
+    if (panel.classList.contains("is-open")) {
+      closePanel(state);
+    } else {
+      openPanel(state);
     }
   });
 
-  analyzeButton?.addEventListener("click", async () => {
-    if (!analysisBox) {
-      return;
-    }
+  closeButton?.addEventListener("click", () => closePanel(state));
 
-    analysisBox.textContent = "Running deep analysis...";
-    const response = await chrome.runtime.sendMessage({
-      type: "DEEP_ANALYZE_PROTOCOL",
-      payload: {
-        protocol: buildProtocolProfile(detection),
-        pageContext: {
-          pageType: detection.type,
-          url: location.href,
-          title: document.title,
-          snippet: document.body?.innerText?.slice(0, 1200) ?? ""
-        }
-      }
-    });
+  walletButton?.addEventListener("click", () => {
+    window.open(chrome.runtime.getURL("src/onboarding/onboarding.html"), "_blank");
+  });
 
-    if (!response?.ok) {
-      analysisBox.textContent = response?.error || "Analysis failed.";
-      return;
-    }
+  refreshWalletButton?.addEventListener("click", async () => {
+    await refreshWalletCard(state);
+  });
 
-    analysisBox.textContent = response.analysis;
+  freeButton?.addEventListener("click", async () => {
+    await runPageAction(state, detection, "free");
+  });
+
+  paidButton?.addEventListener("click", async () => {
+    await runPageAction(state, detection, "paid");
   });
 
   state.root = root;
   state.pill = pill;
   state.panel = panel;
-  state.analysisBox = analysisBox;
+  state.resultBox = resultBox;
   state.walletState = walletState;
-}
+  state.walletBalance = walletBalance;
+  state.passwordInput = passwordInput;
 
-function teardownUi(state: ContentState) {
-  state.root?.remove();
-  state.root = null;
-  state.pill = null;
-  state.panel = null;
-  state.analysisBox = null;
-  state.walletState = null;
-  state.detection = null;
+  await refreshWalletCard(state);
 }
 
 function renderPanel(detection: PageActionDetection) {
   const pricing = detection.tier === "free" ? "Free" : `$${detection.price.toFixed(2)}`;
-  const profile = buildProtocolProfile(detection);
-  const checksHtml = profile.checks.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const summaryEnabled = supportsSummaryAction(detection);
+  const paidButtonLabel = summaryEnabled
+    ? detection.tier === "paid"
+      ? `Pay ${pricing} and Unlock`
+      : "Upgrade to Premium"
+    : detection.label;
+  const summaryText = summaryEnabled
+    ? "Use the free tier for a quick read or unlock the stronger Gemini path over x402 on Algorand TestNet."
+    : "This page type is detected correctly, but the non-summary premium flow for it is still coming next.";
 
   return `
     <div class="algo-safety-header">
       <div>
-        <h2>${escapeHtml(profile.name)}</h2>
-        <span class="algo-risk-pill">${escapeHtml(detection.type)} · ${escapeHtml(pricing)}</span>
+        <p class="algo-brand">Ether Browser</p>
+        <h2>${escapeHtml(toTitleCase(detection.type.replaceAll("_", " ")))}</h2>
+        <span class="algo-risk-pill">${escapeHtml(detection.label)} · ${escapeHtml(pricing)}</span>
       </div>
-      <button class="algo-safety-close" data-close>x</button>
+      <button class="algo-safety-close" data-close aria-label="Close panel">x</button>
     </div>
     <div class="algo-safety-content">
       <section class="algo-safety-section">
-        <h3>Detected page type</h3>
-        <p>${escapeHtml(detection.type)}</p>
+        <h3>Detected page</h3>
+        <p class="algo-muted">${escapeHtml(location.hostname)}</p>
+        <p>${escapeHtml(detection.type)} was detected for this tab.</p>
       </section>
+
       <section class="algo-safety-section">
-        <h3>Suggested action</h3>
-        <p>${escapeHtml(detection.label)} (${escapeHtml(pricing)})</p>
-        <ul class="algo-safety-list">${checksHtml}</ul>
-      </section>
-      <section class="algo-safety-section">
-        <h3>Deep analysis</h3>
-        <p>Use Gemini 2.5 Flash for a richer explanation of this page and what to do next.</p>
+        <h3>Action</h3>
+        <p>${escapeHtml(summaryText)}</p>
         <div class="algo-safety-actions">
-          <button class="algo-safety-primary" data-deep-analyze>Run deep analysis</button>
+          <button class="algo-safety-primary" data-run-free ${summaryEnabled ? "" : "disabled"}>Quick Summary</button>
+          <button class="algo-safety-secondary" data-run-paid ${summaryEnabled ? "" : "disabled"}>${escapeHtml(paidButtonLabel)}</button>
         </div>
-        <div class="algo-analysis-box" data-analysis-box>Analysis output will appear here.</div>
       </section>
+
       <section class="algo-safety-wallet">
-        <h3>Algorand Wallet</h3>
-        <p class="algo-wallet-meta">Use the extension popup to create or import your embedded Algorand TestNet wallet, then come back here.</p>
-        <div class="algo-safety-actions">
-          <button class="algo-safety-secondary" data-connect-wallet>Open wallet setup</button>
+        <h3>Wallet Payer</h3>
+        <p class="algo-wallet-meta">Your embedded Algorand TestNet wallet is used as the x402 payer for premium actions.</p>
+        <div class="algo-wallet-card">
+          <div class="algo-wallet-line" data-wallet-state>Checking embedded wallet...</div>
+          <div class="algo-wallet-line algo-muted" data-wallet-balance>Balance: --</div>
         </div>
-        <div class="algo-analysis-box" data-wallet-state>Wallet not connected.</div>
+        <label class="algo-input-group">
+          <span>Wallet password</span>
+          <input data-wallet-password type="password" placeholder="Needed only for premium payment signing" />
+        </label>
+        <div class="algo-safety-actions">
+          <button class="algo-safety-primary" data-open-wallet>Wallet Setup</button>
+          <button class="algo-safety-secondary" data-refresh-wallet>Refresh Wallet</button>
+        </div>
+      </section>
+
+      <section class="algo-safety-section">
+        <h3>Result</h3>
+        <div class="algo-analysis-box" data-result-box>Ready. Pick a free or premium action to begin.</div>
       </section>
     </div>
   `;
+}
+
+async function refreshWalletCard(state: ContentState) {
+  if (!state.walletState || !state.walletBalance) {
+    return;
+  }
+
+  state.walletState.textContent = "Checking embedded wallet...";
+  state.walletBalance.textContent = "Balance: --";
+
+  const statusResponse = await chrome.runtime.sendMessage({ type: "GET_WALLET_STATUS" });
+  const status = (statusResponse?.status ?? {}) as WalletStatus;
+
+  if (!statusResponse?.ok || !status?.initialized || !status.address) {
+    state.walletState.textContent = "No embedded wallet found yet. Create or import it first.";
+    state.walletBalance.textContent = "Balance: --";
+    return;
+  }
+
+  state.walletState.textContent = `Payer: ${shortAddress(status.address)} on ${status.network || "testnet"}`;
+  state.walletBalance.textContent = "Balance: Loading ALGO and TestNet USDC...";
+
+  const balanceResponse = await chrome.runtime.sendMessage({
+    type: "GET_WALLET_BALANCE",
+    payload: { address: status.address }
+  });
+
+  const balance = (balanceResponse?.balance ?? {}) as WalletBalance;
+  if (!balanceResponse?.ok) {
+    state.walletBalance.textContent = "Balance unavailable right now.";
+    return;
+  }
+
+  state.walletBalance.textContent = `Balance: ${balance.algo || "0"} ALGO · ${balance.usdc || "0"} USDC`;
+}
+
+async function runPageAction(
+  state: ContentState,
+  detection: PageActionDetection,
+  tier: "free" | "paid"
+) {
+  if (!state.resultBox) {
+    return;
+  }
+
+  if (!supportsSummaryAction(detection)) {
+    setResultMessage(state, `${detection.label} is detected, but this non-summary flow is not wired yet.`, "warning");
+    return;
+  }
+
+  setResultMessage(
+    state,
+    tier === "free" ? "Running quick summary..." : "Requesting premium summary...",
+    "loading"
+  );
+
+  const body = JSON.stringify({
+    url: location.href,
+    html: document.documentElement.outerHTML.slice(0, 250000)
+  });
+
+  const response = await fetchEtherApi(`/api/summarize/${tier}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body
+  });
+
+  if (response.status === 402 && tier === "paid") {
+    await handlePaidChallenge(state, body, response);
+    return;
+  }
+
+  if (!response.ok) {
+    setResultMessage(state, await readBackendError(response), "error");
+    return;
+  }
+
+  const result = (await response.json()) as Record<string, unknown>;
+  renderSummaryResult(state, result, tier);
+}
+
+async function handlePaidChallenge(
+  state: ContentState,
+  requestBody: string,
+  response: Response
+) {
+  if (!state.resultBox) {
+    return;
+  }
+
+  const encodedHeader = getHeaderCaseInsensitive(response.headers, "PAYMENT-REQUIRED");
+  if (!encodedHeader) {
+    setResultMessage(
+      state,
+      "The backend requested payment, but the payment challenge header was not exposed to the extension.",
+      "error"
+    );
+    return;
+  }
+
+  const paymentRequired = decodePaymentRequired(encodedHeader);
+  const accepted = paymentRequired.accepts?.[0];
+  if (!accepted) {
+    setResultMessage(state, "The backend did not provide a usable payment option.", "error");
+    return;
+  }
+
+  setResultMessage(state, formatPaymentChallenge(paymentRequired), "info");
+
+  const password = state.passwordInput?.value.trim() || "";
+  if (!password) {
+    setResultMessage(
+      state,
+      `${formatPaymentChallenge(paymentRequired)}\n\nEnter your wallet password in the panel, then click the premium button again to sign and pay.`,
+      "info"
+    );
+    return;
+  }
+
+  const walletResponse = await chrome.runtime.sendMessage({
+    type: "REVEAL_WALLET_SECRETS",
+    payload: { password }
+  });
+
+  if (!walletResponse?.ok) {
+    setResultMessage(state, walletResponse?.error || "Could not unlock the embedded wallet.", "error");
+    return;
+  }
+
+  setResultMessage(state, "Signing Algorand TestNet USDC payment with the embedded wallet...", "loading");
+
+  const paymentHeader = await createPaymentSignature(
+    paymentRequired,
+    walletResponse.wallet as WalletSecrets
+  );
+
+  const retryResponse = await fetchEtherApi("/api/summarize/paid", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "PAYMENT-SIGNATURE": paymentHeader
+    },
+    body: requestBody
+  });
+
+  if (!retryResponse.ok) {
+    setResultMessage(state, await readBackendError(retryResponse), "error");
+    return;
+  }
+
+  const result = (await retryResponse.json()) as Record<string, unknown>;
+  renderSummaryResult(state, result, "paid");
+  await refreshWalletCard(state);
+}
+
+async function createPaymentSignature(
+  paymentRequired: X402PaymentRequired,
+  wallet: WalletSecrets
+) {
+  const accepted = paymentRequired.accepts?.[0];
+  if (!accepted) {
+    throw new Error("No accepted payment requirements found.");
+  }
+
+  const algodClient = new algosdk.Algodv2("", "https://testnet-api.algonode.cloud", "");
+  const suggestedParams = await algodClient.getTransactionParams().do();
+  const transactions: unknown[] = [];
+  let paymentIndex = 0;
+
+  const feePayer = String(accepted.extra?.feePayer || "");
+  if (feePayer) {
+    const feePayerParams = {
+      ...suggestedParams,
+      fee: Number(suggestedParams.minFee || 1000) * 2,
+      flatFee: true
+    };
+
+    const feePayerTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      sender: feePayer,
+      receiver: feePayer,
+      amount: 0,
+      note: new TextEncoder().encode(`x402-fee-payer-${Date.now()}`),
+      suggestedParams: feePayerParams
+    });
+
+    transactions.push(feePayerTxn);
+    paymentIndex = 1;
+  }
+
+  const assetParams = feePayer
+    ? {
+        ...suggestedParams,
+        fee: 0,
+        flatFee: true
+      }
+    : suggestedParams;
+
+  const assetTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+    sender: wallet.address,
+    receiver: accepted.payTo,
+    amount: BigInt(accepted.amount),
+    assetIndex: Number(accepted.asset),
+    note: new TextEncoder().encode(`x402-payment-${Date.now()}`),
+    suggestedParams: assetParams
+  });
+
+  transactions.push(assetTxn);
+
+  if (transactions.length > 1) {
+    algosdk.assignGroupID(transactions);
+  }
+
+  const secretKey = decodeBase64ToUint8Array(wallet.secretKeyBase64);
+  const signedAssetTxn = assetTxn.signTxn(secretKey);
+  const paymentGroup = transactions.map((txn, index) => {
+    if (index === paymentIndex) {
+      return encodeBytesToBase64(signedAssetTxn);
+    }
+    return encodeBytesToBase64(algosdk.encodeUnsignedTransaction(txn));
+  });
+
+  const payload = {
+    x402Version: Number(paymentRequired.x402Version || 2),
+    payload: {
+      paymentGroup,
+      paymentIndex
+    },
+    accepted,
+    resource: paymentRequired.resource || { url: location.href },
+    extensions: paymentRequired.extensions
+  };
+
+  return encodeTextToBase64(JSON.stringify(payload));
+}
+
+function renderSummaryResult(
+  state: ContentState,
+  result: Record<string, unknown>,
+  tier: "free" | "paid"
+) {
+  if (!state.resultBox) {
+    return;
+  }
+
+  state.resultBox.className = "algo-analysis-box";
+
+  const bullets = normalizeStringArray(result.bullets);
+  const insights = normalizeStringArray(result.key_insights || result.keyInsights);
+  const actionItems = normalizeStringArray(result.action_items || result.actionItems);
+  const wordCount = Number(result.word_count ?? 0);
+  const readingTime = Number(result.reading_time_mins ?? 0);
+  const cost = Number(result.cost ?? (tier === "paid" ? 0.25 : 0));
+  const title = String(result.title ?? document.title ?? "Summary");
+  const tldr = String(result.tldr ?? "");
+  const sourceQuality = String(result.source_quality ?? "");
+
+  state.resultBox.innerHTML = `
+    <div class="algo-result-header">
+      <strong>${escapeHtml(title)}</strong>
+      <span class="algo-result-meta">${escapeHtml(tier.toUpperCase())} · $${cost.toFixed(2)}</span>
+    </div>
+    <p>${escapeHtml(tldr || "No summary returned.")}</p>
+    ${renderListSection("Key points", bullets)}
+    ${renderListSection("Key insights", insights)}
+    ${renderListSection("Action items", actionItems)}
+    <div class="algo-result-footer">
+      <span>${escapeHtml(`${wordCount} words`)}</span>
+      ${readingTime ? `<span>${escapeHtml(`${readingTime} min read`)}</span>` : ""}
+      ${sourceQuality ? `<span>${escapeHtml(`Source quality: ${sourceQuality}`)}</span>` : ""}
+    </div>
+  `;
+}
+
+function renderListSection(label: string, items: string[]) {
+  if (!items.length) {
+    return "";
+  }
+
+  return `
+    <div class="algo-result-section">
+      <p class="algo-result-label">${escapeHtml(label)}</p>
+      <ul class="algo-safety-list">
+        ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    </div>
+  `;
+}
+
+function setResultMessage(
+  state: ContentState,
+  message: string,
+  tone: "info" | "error" | "warning" | "loading"
+) {
+  if (!state.resultBox) {
+    return;
+  }
+
+  state.resultBox.className = `algo-analysis-box tone-${tone}`;
+  state.resultBox.textContent = message;
+}
+
+async function fetchEtherApi(path: string, init: RequestInit) {
+  const env = await getExtensionEnvConfig();
+  const headers = new Headers(init.headers || {});
+  headers.set("X-Ether-Key", env.apiKey);
+  return fetch(`${env.apiBaseUrl}${path}`, { ...init, headers });
+}
+
+async function getExtensionEnvConfig(): Promise<ExtensionEnvConfig> {
+  if (cachedEnvConfig) {
+    return cachedEnvConfig;
+  }
+
+  try {
+    const response = await fetch(chrome.runtime.getURL(".env"));
+    if (!response.ok) {
+      cachedEnvConfig = defaultEnvConfig();
+      return cachedEnvConfig;
+    }
+
+    const values = parseEnv(await response.text());
+    cachedEnvConfig = {
+      apiBaseUrl: values.ETHER_API_BASE_URL || "http://127.0.0.1:8000",
+      apiKey: values.ETHER_API_KEY || "ether-browser-dev"
+    };
+    return cachedEnvConfig;
+  } catch {
+    cachedEnvConfig = defaultEnvConfig();
+    return cachedEnvConfig;
+  }
+}
+
+function defaultEnvConfig(): ExtensionEnvConfig {
+  return {
+    apiBaseUrl: "http://127.0.0.1:8000",
+    apiKey: "ether-browser-dev"
+  };
+}
+
+function parseEnv(text: string) {
+  const values: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    values[trimmed.slice(0, separatorIndex).trim()] = trimmed.slice(separatorIndex + 1).trim();
+  }
+
+  return values;
+}
+
+function normalizeBackendDetection(result: Record<string, unknown>): PageActionDetection {
+  const price = Number(result.suggested_price ?? result.price ?? 0);
+  const tierValue = String(result.suggested_tier ?? result.tier ?? (price > 0 ? "paid" : "free"));
+  const tier: PageActionDetection["tier"] =
+    tierValue === "paid" ? "paid" : tierValue === "free" ? "free" : "free";
+
+  return {
+    type: String(result.page_type ?? result.type ?? "backend_detected"),
+    action: String(result.action ?? "summarize"),
+    label: String(result.action_label ?? result.label ?? "Summarize"),
+    price,
+    tier
+  };
+}
+
+function supportsSummaryAction(detection: PageActionDetection) {
+  return [
+    "research_paper",
+    "pdf_document",
+    "documentation",
+    "article",
+    "paywalled_article",
+    "wikipedia",
+    "legal",
+    "financial_doc",
+    "github_repo",
+    "github_readme",
+    "stackoverflow",
+    "youtube_search",
+    "algorand_defi"
+  ].includes(detection.type);
+}
+
+function formatPaymentChallenge(paymentRequired: X402PaymentRequired) {
+  const accepted = paymentRequired.accepts?.[0];
+  if (!accepted) {
+    return "Payment required.";
+  }
+
+  const amount = Number(accepted.amount || 0) / 1_000_000;
+  const assetLabel = String(accepted.asset) === "10458941" ? "USDC" : accepted.asset;
+  const description = paymentRequired.resource?.description || "Premium action";
+  return `Payment required for ${description}: ${amount.toFixed(2)} ${assetLabel} on Algorand TestNet.`;
 }
 
 function formatPillText(detection: PageActionDetection) {
@@ -236,35 +729,26 @@ function formatPillText(detection: PageActionDetection) {
   return `${detection.label} - ${priceText}`;
 }
 
-function buildProtocolProfile(detection: PageActionDetection): AlgoProtocolProfile {
-  return {
-    name: toTitleCase(detection.type.replaceAll("_", " ")),
-    category: detection.type,
-    riskScore: detection.tier === "paid" ? 38 : 12,
-    trustLevel: detection.tier === "paid" ? "Premium" : "General",
-    summary: `${detection.label} is available for this page type.`,
-    checks: [
-      `Page classified as ${detection.type}`,
-      `Action selected: ${detection.action}`,
-      detection.tier === "free"
-        ? "This action is available without payment."
-        : `This action is priced at $${detection.price.toFixed(2)}.`
-    ],
-    premiumFocus: [
-      detection.label,
-      "Context extraction",
-      "Actionable summary",
-      "Page-specific explanation"
-    ]
-  };
+function openPanel(state: ContentState) {
+  state.panelOpen = true;
+  state.panel?.classList.add("is-open");
 }
 
-function handlePageAction(detection: PageActionDetection) {
-  console.log("page_action", {
-    type: detection.type,
-    action: detection.action,
-    price: detection.price
-  });
+function closePanel(state: ContentState) {
+  state.panelOpen = false;
+  state.panel?.classList.remove("is-open");
+}
+
+function teardownUi(state: ContentState) {
+  state.root?.remove();
+  state.root = null;
+  state.pill = null;
+  state.panel = null;
+  state.resultBox = null;
+  state.walletState = null;
+  state.walletBalance = null;
+  state.passwordInput = null;
+  state.detection = null;
 }
 
 function observeLocationChanges(onChange: () => void) {
@@ -290,19 +774,58 @@ function observeLocationChanges(onChange: () => void) {
   });
 }
 
-function normalizeBackendDetection(result: Record<string, unknown>): PageActionDetection {
-  const price = Number(result.price ?? 0);
-  const tierValue = String(result.tier ?? (price > 0 ? "paid" : "free"));
-  const tier: PageActionDetection["tier"] =
-    tierValue === "paid" ? "paid" : tierValue === "free" ? "free" : "free";
+async function readBackendError(response: Response) {
+  try {
+    const json = (await response.json()) as Record<string, unknown>;
+    const detail = json.detail as Record<string, unknown> | string | undefined;
+    if (typeof detail === "string") {
+      return detail;
+    }
+    if (detail && typeof detail === "object") {
+      return String(detail.error || detail.detail || response.statusText || "Request failed.");
+    }
+    return String(json.error || response.statusText || "Request failed.");
+  } catch {
+    return `Request failed with status ${response.status}.`;
+  }
+}
 
-  return {
-    type: String(result.type ?? "backend_detected"),
-    action: String(result.action ?? "summarize"),
-    label: String(result.label ?? "Summarize"),
-    price,
-    tier
-  };
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
+function getHeaderCaseInsensitive(headers: Headers, name: string) {
+  return headers.get(name) || headers.get(name.toLowerCase()) || headers.get(name.toUpperCase());
+}
+
+function decodePaymentRequired(headerValue: string): X402PaymentRequired {
+  return JSON.parse(decodeBase64ToText(headerValue)) as X402PaymentRequired;
+}
+
+function decodeBase64ToText(value: string) {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function decodeBase64ToUint8Array(value: string) {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function encodeTextToBase64(value: string) {
+  return encodeBytesToBase64(new TextEncoder().encode(value));
+}
+
+function encodeBytesToBase64(value: Uint8Array) {
+  let binary = "";
+  value.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
 }
 
 function noneDetection(): PageActionDetection {
@@ -313,6 +836,10 @@ function noneDetection(): PageActionDetection {
     price: 0,
     tier: "none"
   };
+}
+
+function shortAddress(value: string) {
+  return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value;
 }
 
 function toTitleCase(value: string) {

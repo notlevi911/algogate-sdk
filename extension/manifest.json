@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Algo DeFi Safety Layer",
-  "description": "Algorand DeFi trust and risk overlay with wallet and OpenAI hooks.",
+  "description": "Algorand DeFi trust and risk overlay with embedded wallet, Gemini, and x402 hooks.",
   "version": "0.1.0",
   "permissions": [
     "storage",
@@ -13,7 +13,9 @@
     "<all_urls>",
     "https://generativelanguage.googleapis.com/*",
     "http://localhost:5001/*",
-    "http://127.0.0.1:5001/*"
+    "http://127.0.0.1:5001/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -28,6 +30,7 @@
     {
       "matches": ["<all_urls>"],
       "js": [
+        "node_modules/algosdk/dist/browser/algosdk.min.js",
         "src/data/protocols.js",
         "src/content/page_detector.js",
         "src/content/content.js"

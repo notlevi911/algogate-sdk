@@ -215,19 +215,25 @@ async function getWalletBalance(address) {
     }
     const data = (await response.json());
     const microAlgos = Number(data.amount || 0);
+    const testnetUsdcAsset = data.assets?.find((asset) => Number(asset["asset-id"] || 0) === 10458941);
+    const microUsdc = Number(testnetUsdcAsset?.amount || 0);
     return {
         microAlgos,
-        algo: formatAlgo(microAlgos)
+        algo: formatAlgo(microAlgos),
+        microUsdc,
+        usdc: formatUsdc(microUsdc)
     };
 }
 async function detectPageWithBackend(url, html) {
     if (!url) {
         throw new Error("Missing URL for backend detection.");
     }
-    const response = await fetch("http://localhost:5001/detect-page", {
+    const env = await getEnvConfig();
+    const response = await fetch(`${stripTrailingSlash(env.ETHER_API_BASE_URL)}/api/detect`, {
         method: "POST",
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-Ether-Key": env.ETHER_API_KEY
         },
         body: JSON.stringify({
             url,
@@ -244,6 +250,15 @@ function formatAlgo(microAlgos) {
         minimumFractionDigits: 0,
         maximumFractionDigits: 6
     });
+}
+function formatUsdc(microUnits) {
+    return (microUnits / 1_000_000).toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 6
+    });
+}
+function stripTrailingSlash(value) {
+    return value.replace(/\/+$/, "");
 }
 function buildMockAnalysis(protocol, pageContext) {
     return [

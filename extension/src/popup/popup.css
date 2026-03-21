@@ -8,6 +8,7 @@ body {
 
 .popup-shell {
   padding: 16px;
+  width: 380px;
 }
 
 .popup-header h1,
@@ -35,6 +36,16 @@ body {
   margin: 8px 0 0;
   color: #9fb4cc;
   font-size: 12px;
+}
+
+#page-detection,
+#wallet-state {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#page-status {
+  min-height: 18px;
 }
 
 .actions {

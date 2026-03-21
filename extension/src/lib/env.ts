@@ -1,6 +1,8 @@
 export interface EnvConfig {
   GEMINI_API_KEY: string;
   GEMINI_MODEL: string;
+  ETHER_API_BASE_URL: string;
+  ETHER_API_KEY: string;
 }
 
 let cachedConfig: EnvConfig | null = null;
@@ -48,13 +50,17 @@ function parseEnv(text: string): EnvConfig {
 
   return {
     GEMINI_API_KEY: values.GEMINI_API_KEY || "",
-    GEMINI_MODEL: values.GEMINI_MODEL || ""
+    GEMINI_MODEL: values.GEMINI_MODEL || "",
+    ETHER_API_BASE_URL: values.ETHER_API_BASE_URL || "http://127.0.0.1:8000",
+    ETHER_API_KEY: values.ETHER_API_KEY || "ether-browser-dev"
   };
 }
 
 function emptyConfig(): EnvConfig {
   return {
     GEMINI_API_KEY: "",
-    GEMINI_MODEL: ""
+    GEMINI_MODEL: "",
+    ETHER_API_BASE_URL: "http://127.0.0.1:8000",
+    ETHER_API_KEY: "ether-browser-dev"
   };
 }

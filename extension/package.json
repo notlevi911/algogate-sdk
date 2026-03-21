@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "algosdk": "^3.5.2",
     "@perawallet/connect": "^1.4.2"
   },
   "devDependencies": {

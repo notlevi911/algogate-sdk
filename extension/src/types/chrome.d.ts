@@ -1,4 +1,5 @@
 declare const chrome: any;
+declare const algosdk: any;
 
 interface Window {
   ALGO_PROTOCOLS?: Record<string, AlgoProtocolProfile>;

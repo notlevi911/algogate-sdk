@@ -15,7 +15,7 @@
 
 #algo-safety-toggle {
   position: fixed;
-  top: 64px;
+  top: 66px;
   right: 16px;
   z-index: 2147483645;
   border: 0;
@@ -56,6 +56,15 @@
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
+.algo-brand {
+  margin: 0 0 8px;
+  color: #a5b4fc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .algo-safety-header h2,
 .algo-safety-section h3,
 .algo-safety-wallet h3 {
@@ -81,6 +90,10 @@
   padding: 18px;
   overflow-y: auto;
   height: calc(100vh - 64px);
+}
+
+.algo-muted {
+  color: #94a3b8;
 }
 
 .algo-risk-pill {
@@ -140,4 +153,98 @@
   background: #111827;
   color: #dbeafe;
   white-space: pre-wrap;
+}
+
+.algo-analysis-box.tone-error {
+  background: rgba(127, 29, 29, 0.35);
+  color: #fecaca;
+}
+
+.algo-analysis-box.tone-warning {
+  background: rgba(120, 53, 15, 0.35);
+  color: #fed7aa;
+}
+
+.algo-analysis-box.tone-info {
+  background: rgba(30, 41, 59, 0.88);
+  color: #cbd5f5;
+}
+
+.algo-analysis-box.tone-loading {
+  background: rgba(30, 64, 175, 0.28);
+  color: #dbeafe;
+}
+
+.algo-wallet-card {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.algo-wallet-line + .algo-wallet-line {
+  margin-top: 6px;
+}
+
+.algo-input-group {
+  display: block;
+  margin-top: 14px;
+}
+
+.algo-input-group span {
+  display: block;
+  margin-bottom: 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.algo-input-group input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: #111827;
+  color: #f8fafc;
+}
+
+.algo-input-group input::placeholder {
+  color: #64748b;
+}
+
+.algo-safety-primary:disabled,
+.algo-safety-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.algo-result-header,
+.algo-result-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.algo-result-meta,
+.algo-result-footer {
+  color: #93c5fd;
+  font-size: 12px;
+}
+
+.algo-result-section + .algo-result-section {
+  margin-top: 10px;
+}
+
+.algo-result-label {
+  margin: 0;
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
