@@ -1,0 +1,79 @@
+body {
+  margin: 0;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #07111f;
+  color: #e5eefc;
+}
+
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 18px 48px;
+}
+
+.eyebrow {
+  color: #93c5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+}
+
+.card {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 16px;
+  background: #111827;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+label {
+  display: block;
+  margin-top: 12px;
+}
+
+.helper-text {
+  color: #9fb4cc;
+}
+
+input,
+select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: white;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox input {
+  width: auto;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 16px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
+
+#status-text {
+  color: #86efac;
+}

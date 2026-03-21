@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Algo DeFi Safety</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <p class="eyebrow">Algorand DeFi</p>
+        <h1>Safety Layer</h1>
+      </header>
+
+      <section class="card">
+        <h2>Wallet</h2>
+        <p id="wallet-state">Loading wallet state...</p>
+        <p id="wallet-balance" class="wallet-meta">Balance: -- ALGO on Algorand TestNet</p>
+        <div class="actions">
+          <button id="wallet-primary">Set up wallet</button>
+          <button id="reveal-wallet" class="secondary">Reveal secrets</button>
+          <button id="open-options" class="secondary">Options</button>
+        </div>
+        <label class="inline-field">
+          Password to reveal secrets
+          <input id="wallet-password" type="password" placeholder="Enter wallet password" />
+        </label>
+        <pre id="wallet-secrets" class="secret-box hidden"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Current tab</h2>
+        <p id="tab-state">Open a supported Algorand DeFi page to see the overlay.</p>
+      </section>
+
+      <section class="card">
+        <h2>Premium mode</h2>
+        <p>Deep analysis uses Gemini 2.5 Flash when a Gemini key is configured. Otherwise it falls back to a hardcoded mock analysis.</p>
+      </section>
+    </main>
+    <script src="./popup.js"></script>
+  </body>
+</html>

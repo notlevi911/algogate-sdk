@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Algo DeFi Wallet Setup</title>
+    <link rel="stylesheet" href="./onboarding.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">Embedded Algorand Wallet</p>
+        <h1>Set up your extension wallet once.</h1>
+        <p class="helper-text">
+          This wallet is local to your extension and defaults to Algorand TestNet.
+          Standard Algorand wallets use a 25-word recovery phrase.
+        </p>
+      </header>
+
+      <section id="wallet-ready" class="card hidden">
+        <h2>Wallet ready</h2>
+        <p id="ready-summary" class="helper-text"></p>
+        <div class="actions">
+          <button id="open-popup">Done</button>
+        </div>
+      </section>
+
+      <section id="existing-wallet" class="card hidden">
+        <h2>Wallet already initialized</h2>
+        <p id="existing-summary" class="helper-text"></p>
+      </section>
+
+      <section id="setup-panel" class="card">
+        <div class="tab-row">
+          <button id="tab-create" class="tab-button is-active" type="button">Create Wallet</button>
+          <button id="tab-import" class="tab-button secondary" type="button">Import Existing</button>
+        </div>
+
+        <div id="create-view">
+          <div id="create-step-form">
+            <h2>Create a new wallet</h2>
+            <label>
+              Password
+              <input id="create-password" type="password" placeholder="At least 8 characters" />
+            </label>
+            <label>
+              Confirm password
+              <input id="create-password-confirm" type="password" placeholder="Repeat password" />
+            </label>
+            <div class="actions">
+              <button id="generate-wallet" type="button">Generate recovery phrase</button>
+            </div>
+          </div>
+
+          <div id="create-step-reveal" class="hidden">
+            <h2>Save your recovery phrase</h2>
+            <p class="helper-text">
+              Write these 25 words down in order. They are the real recovery phrase for this wallet.
+            </p>
+            <div id="mnemonic-grid" class="mnemonic-grid"></div>
+            <div class="actions">
+              <button id="copy-mnemonic" type="button">Copy recovery phrase</button>
+              <button id="continue-to-verify" type="button">I saved it</button>
+              <button id="restart-create" class="secondary" type="button">Start over</button>
+            </div>
+          </div>
+
+          <div id="create-step-confirm" class="hidden">
+            <h2>Verify your recovery phrase</h2>
+            <p class="helper-text">
+              Confirm a couple of words before the wallet is created.
+            </p>
+            <label>
+              Enter the 4th word
+              <input id="confirm-word-4" type="text" autocomplete="off" />
+            </label>
+            <label>
+              Enter the 5th word
+              <input id="confirm-word-5" type="text" autocomplete="off" />
+            </label>
+            <div class="actions">
+              <button id="confirm-wallet" type="button">Create wallet</button>
+              <button id="back-to-phrase" class="secondary" type="button">Back</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="import-view" class="hidden">
+          <h2>Import an existing wallet</h2>
+          <label>
+            Recovery phrase
+            <textarea
+              id="import-mnemonic"
+              rows="5"
+              placeholder="Paste your 25-word Algorand recovery phrase"
+            ></textarea>
+          </label>
+          <label>
+            Password
+            <input id="import-password" type="password" placeholder="Set a local password" />
+          </label>
+          <label>
+            Confirm password
+            <input id="import-password-confirm" type="password" placeholder="Repeat password" />
+          </label>
+          <div class="actions">
+            <button id="import-wallet" type="button">Import wallet</button>
+          </div>
+        </div>
+
+        <p id="status-text" class="status-text"></p>
+      </section>
+    </main>
+    <script src="../../node_modules/algosdk/dist/browser/algosdk.min.js"></script>
+    <script type="module" src="./onboarding.js"></script>
+  </body>
+</html>
