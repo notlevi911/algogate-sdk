@@ -1,0 +1,9 @@
+{
+  "name": "algogate-monorepo",
+  "private": true,
+  "scripts": {
+    "frontend:build": "pnpm --dir frontend build",
+    "frontend:dev": "pnpm --dir frontend dev",
+    "frontend:lint": "pnpm --dir frontend lint"
+  }
+}

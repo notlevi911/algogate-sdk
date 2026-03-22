@@ -9,5 +9,6 @@ extension/node_modules/
 algogate_extension/
 build/
 dist/
+.vercel/
 *.egg-info/
 .venv-publish/
